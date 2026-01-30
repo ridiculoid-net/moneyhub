@@ -1143,6 +1143,44 @@ function BudgetForm({ budget, onSubmit, onCancel }: { budget?: Budget; onSubmit:
 function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppState) => void }) {
   const [settings, setLocal] = useState(state.settings);
   const [saved, setSaved] = useState(false);
+  const exportData = () => {
+    const payload = JSON.stringify(state, null, 2);
+    const blob = new Blob([payload], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `moneyhub-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+  const importData = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '{}'));
+        const imported: AppState = {
+          entries: Array.isArray(parsed.entries) ? parsed.entries : defaultEntries,
+          budgets: Array.isArray(parsed.budgets) ? parsed.budgets.map((b: Budget) => normalizeBudget(b)) : defaultBudgets,
+          holdings: Array.isArray(parsed.holdings) ? parsed.holdings : defaultHoldings,
+          bills: Array.isArray(parsed.bills) ? parsed.bills : defaultBills,
+          settings: { ...defaultSettings, ...(parsed.settings || {}) },
+        };
+        setState(imported);
+        saveState(imported);
+        setLocal(imported.settings);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      } catch {
+        alert('Import failed. Please select a valid MoneyHub JSON backup file.');
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
   const handleSave = () => { const ns = { ...state, settings }; setState(ns); saveState(ns); setSaved(true); setTimeout(() => setSaved(false), 2000); };
   const handleReset = () => { if (confirm('Reset all data? This cannot be undone.')) { const ns = { entries: defaultEntries, budgets: defaultBudgets, holdings: defaultHoldings, bills: defaultBills, settings: defaultSettings }; setState(ns); saveState(ns); setLocal(defaultSettings); } };
   return (
@@ -1176,6 +1214,17 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
               <input type="password" value={settings.finnhubApiKey} onChange={e => setLocal({ ...settings, finnhubApiKey: e.target.value })} placeholder="Enter your Finnhub API key for stock prices" />
               <p className="form-hint">Get a free API key at <a href="https://finnhub.io" target="_blank" rel="noopener noreferrer">finnhub.io</a> for real-time stock prices.</p>
             </div>
+          </div>
+        </div>
+        <div className="settings-section">
+          <h3>Data Backup</h3>
+          <p className="settings-description">Export your data to move it to another device, or import a previous backup.</p>
+          <div className="settings-actions settings-actions-inline">
+            <button className="btn-secondary" onClick={exportData}>Export Data</button>
+            <label className="btn-secondary file-upload">
+              Import Data
+              <input type="file" accept="application/json" onChange={importData} />
+            </label>
           </div>
         </div>
         <div className="settings-actions"><button className="btn-danger" onClick={handleReset}>Reset All Data</button><button className="btn-primary" onClick={handleSave}>{saved ? <><Icons.Check /> Saved!</> : 'Save Settings'}</button></div>

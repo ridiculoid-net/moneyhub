@@ -1694,6 +1694,24 @@ body {
   padding-top: 8px;
 }
 
+.settings-actions-inline {
+  justify-content: flex-start;
+  gap: 12px;
+  padding-top: 0;
+}
+
+.file-upload {
+  position: relative;
+  overflow: hidden;
+}
+
+.file-upload input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
 /* ============================================
    FORMS
    ============================================ */
