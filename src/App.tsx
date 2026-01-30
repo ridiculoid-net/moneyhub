@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import './styles.css';
+import { supabase } from './supabaseClient';
+import profileDefault from './assets/profile-default.svg';
 
 // ============================================
 // TYPES
@@ -122,7 +124,7 @@ const Icons = {
 // ============================================
 
 const defaultSettings: Settings = {
-  userName: 'Luke',
+  userName: '',
   payAmount: 0,
   payFrequency: 'biweekly',
   firstPayDate: '',
@@ -445,13 +447,53 @@ function Sidebar({ activeNav, setActiveNav }: { activeNav: string; setActiveNav:
 }
 
 function Topbar({ userName, pageTitle }: { userName: string; pageTitle: string }) {
+  const [authUser, setAuthUser] = useState<{ email?: string } | null>(null);
+  const authEnabled = Boolean(supabase);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      setAuthUser(data.session?.user || null);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user || null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const signInWithGoogle = async () => {
+    if (!supabase) return;
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+  };
+  const signOut = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+  };
+  const displayName = userName?.trim() || 'there';
+
   return (
     <header className="topbar">
-      <div className="topbar-left"><h2>Hello {userName}</h2><span className="topbar-subtitle">{pageTitle}</span></div>
+      <div className="topbar-left"><h2>Hello {displayName}</h2><span className="topbar-subtitle">{pageTitle}</span></div>
       <div className="topbar-right">
         <div className="search-bar"><Icons.Search /><input type="text" placeholder="Search transactions..." /></div>
+        {authEnabled && (
+          authUser ? (
+            <button className="auth-chip" onClick={signOut} title={authUser.email || 'Signed in'}>
+              <span className="auth-label">{authUser.email?.split('@')[0] || 'Signed in'}</span>
+              <span className="auth-action">Sign out</span>
+            </button>
+          ) : (
+            <button className="auth-chip" onClick={signInWithGoogle}>
+              <span className="auth-label">Sign in</span>
+              <span className="auth-action">Google</span>
+            </button>
+          )
+        )}
         <button className="notification-btn"><Icons.Bell /><span className="notification-badge"></span></button>
-        <div className="profile-chip"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Aphex_Twin_logo.svg/1200px-Aphex_Twin_logo.svg.png" alt="Profile" /></div>
+        <div className="profile-chip"><img src={profileDefault} alt="Profile" /></div>
       </div>
     </header>
   );
@@ -1156,6 +1198,19 @@ function BudgetForm({ budget, onSubmit, onCancel }: { budget?: Budget; onSubmit:
 function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppState) => void }) {
   const [settings, setLocal] = useState(state.settings);
   const [saved, setSaved] = useState(false);
+  const [authUser, setAuthUser] = useState<{ email?: string } | null>(null);
+  const authEnabled = Boolean(supabase);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      setAuthUser(data.session?.user || null);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user || null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
   const exportData = () => {
     const payload = JSON.stringify(state, null, 2);
     const blob = new Blob([payload], { type: 'application/json' });
@@ -1194,6 +1249,17 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
     reader.readAsText(file);
     event.target.value = '';
   };
+  const signInWithGoogle = async () => {
+    if (!supabase) return;
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+  };
+  const signOut = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+  };
   const handleSave = () => { const ns = { ...state, settings }; setState(ns); saveState(ns); setSaved(true); setTimeout(() => setSaved(false), 2000); };
   const handleReset = () => { if (confirm('Reset all data? This cannot be undone.')) { const ns = { entries: defaultEntries, budgets: defaultBudgets, holdings: defaultHoldings, bills: defaultBills, settings: defaultSettings }; setState(ns); saveState(ns); setLocal(defaultSettings); } };
   return (
@@ -1228,6 +1294,23 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
               <p className="form-hint">Get a free API key at <a href="https://finnhub.io" target="_blank" rel="noopener noreferrer">finnhub.io</a> for real-time stock prices.</p>
             </div>
           </div>
+        </div>
+        <div className="settings-section">
+          <h3>Sign In</h3>
+          <p className="settings-description">Optional Google login. Use this to link your data to a single identity.</p>
+          {!authEnabled ? (
+            <p className="settings-description">Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable Google sign-in.</p>
+          ) : authUser ? (
+            <div className="settings-auth-row">
+              <div>
+                <div className="settings-auth-label">Signed in as</div>
+                <div className="settings-auth-value">{authUser.email || 'Unknown user'}</div>
+              </div>
+              <button className="btn-secondary" onClick={signOut}>Sign out</button>
+            </div>
+          ) : (
+            <button className="btn-secondary" onClick={signInWithGoogle}>Sign in with Google</button>
+          )}
         </div>
         <div className="settings-section">
           <h3>Data Backup</h3>

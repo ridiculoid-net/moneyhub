@@ -316,6 +316,37 @@ body {
   gap: 16px;
 }
 
+.auth-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--border-radius-pill);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auth-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-green);
+}
+
+.auth-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.auth-action {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .search-bar {
   display: flex;
   align-items: center;
@@ -2419,6 +2450,26 @@ body {
   font-size: 0.875rem;
   color: var(--text-secondary);
   margin-bottom: 1rem;
+}
+
+.settings-auth-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-auth-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.settings-auth-value {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 /* Full Width Form Group */
