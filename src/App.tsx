@@ -618,13 +618,17 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
         const over = spent > b.allocated && b.allocated > 0; 
         const notSet = b.allocated === 0;
         return (
-          <div key={b.id} className={`budget-item ${over ? 'over' : ''} ${notSet ? 'not-set' : ''}`}>
+          <div
+            key={b.id}
+            className={`budget-item ${over ? 'over' : ''} ${notSet ? 'not-set' : ''}`}
+            onClick={() => { if (notSet) { setEditingId(b.id); setShowAdd(false); } }}
+          >
             <div className="budget-item-header">
               <div className="budget-color" style={{ background: b.color }}></div>
               <h4>{b.category}</h4>
               <div className="budget-item-actions">
-                <button className="icon-btn" onClick={() => setEditingId(b.id)}><Icons.Edit /></button>
-                <button className="icon-btn danger" onClick={() => handleDelete(b.id)}><Icons.Trash /></button>
+                <button className="icon-btn" onClick={(e) => { e.stopPropagation(); setEditingId(b.id); }}><Icons.Edit /></button>
+                <button className="icon-btn danger" onClick={(e) => { e.stopPropagation(); handleDelete(b.id); }}><Icons.Trash /></button>
               </div>
             </div>
             <div className="budget-progress">
