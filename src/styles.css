@@ -380,12 +380,15 @@ body {
   border-radius: 50%;
   overflow: hidden;
   border: 2px solid var(--accent-green);
+  background: #000;
 }
 
 .profile-chip img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  padding: 4px;
+  filter: invert(1);
 }
 
 /* ============================================
@@ -2323,4 +2326,220 @@ body {
 
 .btn-secondary:not(:disabled):hover svg {
   transform: rotate(180deg);
+}
+
+/* ============================================
+   BUDGETS PAGE STYLES
+   ============================================ */
+
+.budgets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.budget-item {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 1.25rem;
+  border: 1px solid var(--border-primary);
+  transition: all 0.2s;
+}
+
+.budget-item:hover {
+  border-color: var(--border-secondary);
+  transform: translateY(-2px);
+}
+
+.budget-item.over {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.budget-item-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.budget-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.budget-item-header h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  margin: 0;
+}
+
+.budget-item-actions {
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.budget-item:hover .budget-item-actions {
+  opacity: 1;
+}
+
+.budget-progress {
+  height: 8px;
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+}
+
+.budget-progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  min-width: 2px;
+}
+
+.budget-item-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.813rem;
+}
+
+.budget-item-footer span:first-child {
+  color: var(--text-secondary);
+}
+
+.budget-item-footer span:last-child {
+  color: var(--text-tertiary);
+}
+
+.budget-item-footer .over-text {
+  color: #ef4444;
+  font-weight: 500;
+}
+
+/* Summary Cards for Budgets */
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.summary-card {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 1.25rem;
+  border: 1px solid var(--border-primary);
+}
+
+.summary-card.large {
+  grid-column: 1 / -1;
+  max-width: 400px;
+}
+
+.summary-label {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.summary-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.summary-value.danger {
+  color: #ef4444;
+}
+
+.summary-change {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  font-size: 0.813rem;
+}
+
+.summary-change svg {
+  width: 14px;
+  height: 14px;
+}
+
+.summary-change.positive {
+  color: var(--accent-green);
+}
+
+.summary-change.negative {
+  color: #ef4444;
+}
+
+/* Color Picker */
+.color-picker {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.color-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.color-swatch:hover {
+  transform: scale(1.1);
+}
+
+.color-swatch.active {
+  border-color: white;
+  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px currentColor;
+}
+
+/* Budget Not Set State */
+.budget-item.not-set {
+  border-style: dashed;
+  background: var(--bg-secondary);
+}
+
+.budget-item.not-set:hover {
+  border-color: var(--accent-purple);
+  cursor: pointer;
+}
+
+.budget-item-footer .not-set-text {
+  color: var(--accent-purple);
+  font-size: 0.75rem;
+}
+
+/* Fix empty state button size */
+.empty-state .btn-primary {
+  padding: 0.6rem 1.25rem;
+  font-size: 0.875rem;
+}
+
+.empty-state .btn-primary svg {
+  width: 16px;
+  height: 16px;
+  margin-bottom: 0;
+  color: white;
+}
+
+/* Center setup prompt button */
+.setup-prompt-content .btn-primary {
+  margin: 0 auto;
+  display: inline-flex;
 }

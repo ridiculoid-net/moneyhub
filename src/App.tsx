@@ -210,7 +210,7 @@ function Topbar({ userName, pageTitle }: { userName: string; pageTitle: string }
       <div className="topbar-right">
         <div className="search-bar"><Icons.Search /><input type="text" placeholder="Search transactions..." /></div>
         <button className="notification-btn"><Icons.Bell /><span className="notification-badge"></span></button>
-        <div className="profile-chip"><img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face" alt="Profile" /></div>
+        <div className="profile-chip"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Aphex_Twin_logo.svg/1200px-Aphex_Twin_logo.svg.png" alt="Profile" /></div>
       </div>
     </header>
   );
@@ -607,7 +607,33 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
     <div className="page-content">
       <div className="page-header"><div><h1>Budgets</h1><p className="page-subtitle">Manage your spending categories</p></div><button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Category</span></button></div>
       <div className="summary-cards"><div className="summary-card"><div className="summary-label">Total Allocated</div><div className="summary-value">{formatCurrency(totalAllocated)}</div></div><div className="summary-card"><div className="summary-label">Total Spent</div><div className="summary-value">{formatCurrency(totalSpent)}</div></div><div className="summary-card"><div className="summary-label">Remaining</div><div className={`summary-value ${totalAllocated - totalSpent < 0 ? 'danger' : ''}`}>{formatCurrency(totalAllocated - totalSpent)}</div></div></div>
-      <div className="budgets-grid">{state.budgets.map(b => { const spent = cycleEntries.filter(e => e.category === b.category).reduce((s, e) => s + e.amount, 0); const pct = b.allocated > 0 ? Math.min((spent / b.allocated) * 100, 100) : 0; const over = spent > b.allocated && b.allocated > 0; return (<div key={b.id} className={`budget-item ${over ? 'over' : ''}`}><div className="budget-item-header"><div className="budget-color" style={{ background: b.color }}></div><h4>{b.category}</h4><div className="budget-item-actions"><button className="icon-btn" onClick={() => setEditingId(b.id)}><Icons.Edit /></button><button className="icon-btn danger" onClick={() => handleDelete(b.id)}><Icons.Trash /></button></div></div><div className="budget-progress"><div className="budget-progress-bar" style={{ width: `${pct}%`, background: over ? '#ef4444' : b.color }}></div></div><div className="budget-item-footer"><span>{formatCurrency(spent)} / {formatCurrency(b.allocated)}</span><span className={over ? 'over-text' : ''}>{over ? 'Over budget!' : `${formatCurrency(b.allocated - spent)} left`}</span></div></div>); })}</div>
+      <div className="budgets-grid">{state.budgets.map(b => { 
+        const spent = cycleEntries.filter(e => e.category === b.category).reduce((s, e) => s + e.amount, 0); 
+        const pct = b.allocated > 0 ? Math.min((spent / b.allocated) * 100, 100) : (spent > 0 ? 100 : 0); 
+        const over = spent > b.allocated && b.allocated > 0; 
+        const notSet = b.allocated === 0;
+        return (
+          <div key={b.id} className={`budget-item ${over ? 'over' : ''} ${notSet ? 'not-set' : ''}`}>
+            <div className="budget-item-header">
+              <div className="budget-color" style={{ background: b.color }}></div>
+              <h4>{b.category}</h4>
+              <div className="budget-item-actions">
+                <button className="icon-btn" onClick={() => setEditingId(b.id)}><Icons.Edit /></button>
+                <button className="icon-btn danger" onClick={() => handleDelete(b.id)}><Icons.Trash /></button>
+              </div>
+            </div>
+            <div className="budget-progress">
+              <div className="budget-progress-bar" style={{ width: notSet ? '0%' : `${pct}%`, background: over ? '#ef4444' : b.color }}></div>
+            </div>
+            <div className="budget-item-footer">
+              <span>{formatCurrency(spent)} / {notSet ? '--' : formatCurrency(b.allocated)}</span>
+              <span className={over ? 'over-text' : notSet ? 'not-set-text' : ''}>
+                {over ? 'Over budget!' : notSet ? 'Click to set budget' : `${formatCurrency(b.allocated - spent)} left`}
+              </span>
+            </div>
+          </div>
+        ); 
+      })}</div>
       <Modal isOpen={showAdd || editingId !== null} onClose={() => { setShowAdd(false); setEditingId(null); }} title={editingId ? 'Edit Budget' : 'Add Budget'}><BudgetForm budget={editingId ? state.budgets.find(b => b.id === editingId) : undefined} onSubmit={handleSave} onCancel={() => { setShowAdd(false); setEditingId(null); }} /></Modal>
     </div>
   );
