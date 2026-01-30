@@ -225,6 +225,43 @@ const allocatePaycheck = (budgets: Budget[], paycheckAmount: number): Record<str
   return funded;
 };
 
+const isSavingsCategory = (category: string, budgets: Budget[]): boolean => {
+  const budget = budgets.find(b => b.category === category);
+  if (budget?.type === 'savings') return true;
+  return category.toLowerCase().includes('savings');
+};
+
+const getSavingsAmount = (entry: Entry | null | undefined, budgets: Budget[]): number => {
+  if (!entry) return 0;
+  if (entry.type !== 'expense') return 0;
+  return isSavingsCategory(entry.category, budgets) ? entry.amount : 0;
+};
+
+const applySavingsDelta = (holdings: Holding[], delta: number): Holding[] => {
+  if (delta === 0) return holdings;
+  const idx = holdings.findIndex(h => h.type === 'account' && h.name.toLowerCase() === 'savings');
+  if (idx !== -1) {
+    const existing = holdings[idx];
+    const prevValue = existing.value;
+    const nextValue = Math.max(0, prevValue + delta);
+    const next = { ...existing, value: nextValue, previousValue: prevValue };
+    return holdings.map((h, i) => (i === idx ? next : h));
+  }
+  if (delta <= 0) return holdings;
+  return [
+    {
+      id: generateId(),
+      name: 'Savings',
+      type: 'account',
+      value: delta,
+      previousValue: 0,
+      icon: '$',
+      iconClass: 'savings',
+    },
+    ...holdings,
+  ];
+};
+
 const buildCycles = (settings: Settings): BudgetCycle[] => {
   if (!settings.firstPayDate) return [];
   const interval = getCycleIntervalDays(settings.payFrequency);
@@ -496,7 +533,18 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
     return months;
   }, [state.entries]);
 
-  const handleAddEntry = (entry: Omit<Entry, 'id'>) => { const ns = { ...state, entries: [{ ...entry, id: generateId() }, ...state.entries] }; setState(ns); saveState(ns); setShowAddEntry(false); };
+  const handleAddEntry = (entry: Omit<Entry, 'id'>) => {
+    const entryWithId = { ...entry, id: generateId() };
+    const delta = getSavingsAmount(entryWithId, state.budgets);
+    const ns = {
+      ...state,
+      entries: [entryWithId, ...state.entries],
+      holdings: applySavingsDelta(state.holdings, delta),
+    };
+    setState(ns);
+    saveState(ns);
+    setShowAddEntry(false);
+  };
 
   const bufferBudget = state.budgets.find(b => b.type === 'buffer');
   const bufferState = bufferBudget ? statesByBudgetId.get(bufferBudget.id) : undefined;
@@ -892,9 +940,44 @@ function EntriesPage({ state, setState }: { state: AppState; setState: (s: AppSt
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const filtered = state.entries.filter(e => filter === 'all' || e.type === filter).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const handleAdd = (entry: Omit<Entry, 'id'>) => { const ns = { ...state, entries: [{ ...entry, id: generateId() }, ...state.entries] }; setState(ns); saveState(ns); setShowAdd(false); };
-  const handleEdit = (entry: Omit<Entry, 'id'>) => { const ns = { ...state, entries: state.entries.map(e => e.id === editingId ? { ...entry, id: editingId } : e) }; setState(ns); saveState(ns); setEditingId(null); };
-  const handleDelete = (id: string) => { const ns = { ...state, entries: state.entries.filter(e => e.id !== id) }; setState(ns); saveState(ns); };
+  const handleAdd = (entry: Omit<Entry, 'id'>) => {
+    const entryWithId = { ...entry, id: generateId() };
+    const delta = getSavingsAmount(entryWithId, state.budgets);
+    const ns = {
+      ...state,
+      entries: [entryWithId, ...state.entries],
+      holdings: applySavingsDelta(state.holdings, delta),
+    };
+    setState(ns);
+    saveState(ns);
+    setShowAdd(false);
+  };
+  const handleEdit = (entry: Omit<Entry, 'id'>) => {
+    const prevEntry = state.entries.find(e => e.id === editingId) || null;
+    const nextEntry = { ...entry, id: editingId || '' };
+    const prevAmount = getSavingsAmount(prevEntry, state.budgets);
+    const nextAmount = getSavingsAmount(nextEntry, state.budgets);
+    const delta = nextAmount - prevAmount;
+    const ns = {
+      ...state,
+      entries: state.entries.map(e => e.id === editingId ? nextEntry : e),
+      holdings: applySavingsDelta(state.holdings, delta),
+    };
+    setState(ns);
+    saveState(ns);
+    setEditingId(null);
+  };
+  const handleDelete = (id: string) => {
+    const prevEntry = state.entries.find(e => e.id === id) || null;
+    const delta = -getSavingsAmount(prevEntry, state.budgets);
+    const ns = {
+      ...state,
+      entries: state.entries.filter(e => e.id !== id),
+      holdings: applySavingsDelta(state.holdings, delta),
+    };
+    setState(ns);
+    saveState(ns);
+  };
   return (
     <div className="page-content">
       <div className="page-header"><div><h1>Entries</h1><p className="page-subtitle">View and manage your transactions</p></div><button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Entry</span></button></div>
