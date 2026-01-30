@@ -465,6 +465,24 @@ body {
   transition: transform 0.2s ease;
 }
 
+.budget-card.glow::after {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(circle at 20% 20%, rgba(34, 197, 94, 0.25), transparent 45%),
+    radial-gradient(circle at 80% 10%, rgba(59, 130, 246, 0.25), transparent 50%),
+    radial-gradient(circle at 50% 80%, rgba(236, 72, 153, 0.25), transparent 45%);
+  filter: blur(18px);
+  opacity: 0.6;
+  animation: cardGlow 8s ease-in-out infinite;
+  z-index: 0;
+}
+
+.budget-card.glow > * {
+  position: relative;
+  z-index: 1;
+}
+
 .budget-card::before {
   content: '';
   position: absolute;
@@ -482,6 +500,12 @@ body {
 
 .budget-card:hover {
   transform: translateY(-2px);
+}
+
+@keyframes cardGlow {
+  0% { opacity: 0.35; transform: translateY(0); }
+  50% { opacity: 0.7; transform: translateY(-6px); }
+  100% { opacity: 0.35; transform: translateY(0); }
 }
 
 .budget-card-header {

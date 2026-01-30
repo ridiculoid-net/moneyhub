@@ -316,7 +316,8 @@ const computeCurrentCycleData = (settings: Settings, budgets: Budget[], entries:
     const states = budgets.map(b => {
       const fundedAmount = fundedByBudgetId[b.id] || 0;
       const carryIn = b.rollover ? (prevStates.get(b.id)?.availableEnd || 0) : 0;
-      const availableStart = carryIn + fundedAmount;
+      const baseBuffer = b.type === 'buffer' && prevStates.size === 0 ? (settings.bufferAmount || 0) : 0;
+      const availableStart = carryIn + baseBuffer + fundedAmount;
       const spentAmount = spendMap.get(b.id) || 0;
       const availableEnd = Math.max(0, availableStart - spentAmount);
       return { cycleId: cycle.id, budgetId: b.id, fundedAmount, spentAmount, availableStart, availableEnd };
@@ -512,7 +513,10 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
   const budgetRemaining = state.settings.payAmount - cycleSpent;
   const budgetPercent = state.settings.payAmount > 0 ? ((budgetRemaining / state.settings.payAmount) * 100).toFixed(1) : '0';
   
-  const savingsYTD = state.entries.filter(e => e.date >= yearStart && e.type === 'income').reduce((s, e) => s + e.amount, 0) * 0.15;
+  const savingsCategories = state.budgets.filter(b => b.type === 'savings').map(b => b.category);
+  const savingsYTD = savingsCategories.length > 0
+    ? state.entries.filter(e => e.date >= yearStart && e.type === 'expense' && savingsCategories.includes(e.category)).reduce((s, e) => s + e.amount, 0)
+    : state.entries.filter(e => e.date >= yearStart && e.type === 'income').reduce((s, e) => s + e.amount, 0) * 0.15;
   const totalHoldings = state.holdings.reduce((s, h) => s + h.value, 0);
   const categorySpending = state.budgets.map(b => {
     const spent = filteredEntries.filter(e => e.category === b.category).reduce((s, e) => s + e.amount, 0);
@@ -551,11 +555,11 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
   const bufferAvailable = bufferState ? bufferState.availableEnd : state.settings.bufferAmount;
 
   const budgetCards = [
-    { id: 'budget', label: 'Budget Remaining', value: formatCurrency(budgetRemaining), badge: `${budgetPercent}%`, color: 'purple', icon: Icons.Wallet, ticker: 'BUDGET' },
-    { id: 'buffer', label: 'Buffer Available', value: formatCurrency(bufferAvailable), badge: '100%', color: 'cyan', icon: Icons.Shield, ticker: 'BUFFER' },
-    { id: 'savings', label: 'Savings YTD', value: formatCurrency(savingsYTD), badge: state.settings.savingsGoal > 0 ? `${((savingsYTD / state.settings.savingsGoal) * 100).toFixed(0)}%` : '0%', color: 'orange', icon: Icons.PiggyBank, ticker: 'SAVE' },
-    { id: 'payday', label: 'Next Payday', value: nextPayday ? formatDate(nextPayday) : 'Not Set', badge: nextPayday ? `${daysUntilPayday}d` : '--', color: 'green', icon: Icons.Calendar, ticker: 'PAY' },
-    { id: 'total', label: 'Total Holdings', value: formatCurrency(totalHoldings), badge: '+0.0%', color: 'pink', icon: Icons.DollarSign, ticker: 'TOTAL' },
+    { id: 'budget', label: 'Budget Remaining', value: formatCurrency(budgetRemaining), badge: `${budgetPercent}%`, color: 'purple', icon: Icons.Wallet, ticker: 'BUDGET', glow: false },
+    { id: 'buffer', label: 'Buffer Available', value: formatCurrency(bufferAvailable), badge: 'LIVE', color: 'cyan', icon: Icons.Shield, ticker: 'BUFFER', glow: true },
+    { id: 'savings', label: 'Savings YTD', value: formatCurrency(savingsYTD), badge: state.settings.savingsGoal > 0 ? `${((savingsYTD / state.settings.savingsGoal) * 100).toFixed(0)}%` : '0%', color: 'orange', icon: Icons.PiggyBank, ticker: 'SAVE', glow: true },
+    { id: 'payday', label: 'Next Payday', value: nextPayday ? formatDate(nextPayday) : 'Not Set', badge: nextPayday ? `${daysUntilPayday}d` : '--', color: 'green', icon: Icons.Calendar, ticker: 'PAY', glow: false },
+    { id: 'total', label: 'Total Holdings', value: formatCurrency(totalHoldings), badge: '+0.0%', color: 'pink', icon: Icons.DollarSign, ticker: 'TOTAL', glow: false },
   ];
 
   if (needsSetup) {
@@ -580,7 +584,16 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
           </div>
           <button className="add-btn-small" onClick={() => setShowAddEntry(true)}><Icons.Plus /><span>Add Entry</span></button>
         </div>
-        <div className="budget-cards-row">{budgetCards.map(c => (<div key={c.id} className={`budget-card ${c.color}`}><div className="budget-card-header"><div className="budget-card-icon"><c.icon /><span>{c.ticker}</span></div><span className="budget-card-badge">{c.badge}</span></div><div className="budget-card-label">{c.label}</div><div className="budget-card-value">{c.value}</div></div>))}</div>
+        <div className="budget-cards-row">{budgetCards.map(c => (
+          <div key={c.id} className={`budget-card ${c.color} ${c.glow ? 'glow' : ''}`}>
+            <div className="budget-card-header">
+              <div className="budget-card-icon"><c.icon /><span>{c.ticker}</span></div>
+              <span className="budget-card-badge">{c.badge}</span>
+            </div>
+            <div className="budget-card-label">{c.label}</div>
+            <div className="budget-card-value">{c.value}</div>
+          </div>
+        ))}</div>
       </div>
       <div className="holdings-section"><div className="section-title">Holdings</div>
         {state.holdings.length === 0 ? (
