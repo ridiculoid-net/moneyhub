@@ -678,6 +678,17 @@ function EntryForm({ budgets, onSubmit, onCancel, initialData }: { budgets: Budg
           </div>
         </div>
       </div>
+      {type === 'expense' && (
+        <div className="form-group">
+          <label className="form-label-row">
+            <span>Category</span>
+            {selectedBadge && selectedBudget && <span className={`budget-badge ${selectedBudget.type} form-badge`}>{selectedBadge}</span>}
+          </label>
+          <select value={category} onChange={e => setCategory(e.target.value)}>
+            {budgets.map(b => (<option key={b.id} value={b.category}>{b.category}</option>))}
+          </select>
+        </div>
+      )}
       <div className="form-row">
         <div className="form-group">
           <label>Amount</label>
@@ -692,17 +703,6 @@ function EntryForm({ budgets, onSubmit, onCancel, initialData }: { budgets: Budg
         <label>Description</label>
         <input type="text" placeholder="What was this for?" value={description} onChange={e => setDescription(e.target.value)} required />
       </div>
-      {type === 'expense' && (
-        <div className="form-group">
-          <label className="form-label-row">
-            <span>Category</span>
-            {selectedBadge && selectedBudget && <span className={`budget-badge ${selectedBudget.type} form-badge`}>{selectedBadge}</span>}
-          </label>
-          <select value={category} onChange={e => setCategory(e.target.value)}>
-            {budgets.map(b => (<option key={b.id} value={b.category}>{b.category}</option>))}
-          </select>
-        </div>
-      )}
       <div className="form-actions">
         <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
         <button type="submit" className="btn-primary">Save Entry</button>
