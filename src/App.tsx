@@ -599,7 +599,20 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
         {state.holdings.length === 0 ? (
           <div className="empty-state-small">No holdings yet. Add accounts or stocks in the Holdings page.</div>
         ) : (
-          <div className="holdings-grid">{state.holdings.slice(0, 4).map(h => { const change = getPercentChange(h.value, h.previousValue); return (<div key={h.id} className="holding-card"><div className="holding-header"><div className={`holding-icon ${h.iconClass}`}>{h.icon}</div><div className="holding-info"><h4>{h.name}</h4><span>{h.type === 'stock' && h.symbol ? h.symbol : h.type}</span></div></div><div className="holding-value">{formatCurrency(h.value)}</div><div className={`holding-change ${change >= 0 ? 'positive' : 'negative'}`}>{change >= 0 ? <Icons.TrendingUp /> : <Icons.TrendingDown />}<span>{change >= 0 ? '+' : ''}{change.toFixed(1)}%</span></div></div>); })}</div>
+          <div className="holdings-grid">{state.holdings.slice(0, 4).map((h, index) => {
+            const change = getPercentChange(h.value, h.previousValue);
+            const accent = index % 4 === 0 ? 'accent-green' : index % 4 === 1 ? 'accent-blue' : index % 4 === 2 ? 'accent-orange' : 'accent-pink';
+            return (
+              <div key={h.id} className={`holding-card holding-card-${accent}`}>
+                <div className="holding-header">
+                  <div className={`holding-icon ${h.iconClass}`}>{h.icon}</div>
+                  <div className="holding-info"><h4>{h.name}</h4><span>{h.type === 'stock' && h.symbol ? h.symbol : h.type}</span></div>
+                </div>
+                <div className="holding-value">{formatCurrency(h.value)}</div>
+                <div className={`holding-change ${change >= 0 ? 'positive' : 'negative'}`}>{change >= 0 ? <Icons.TrendingUp /> : <Icons.TrendingDown />}<span>{change >= 0 ? '+' : ''}{change.toFixed(1)}%</span></div>
+              </div>
+            );
+          })}</div>
         )}
       </div>
       <div className="panels-grid">
