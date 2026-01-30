@@ -36,6 +36,8 @@ interface Holding {
   icon: string;
   iconClass: string;
   symbol?: string; // Stock ticker symbol for real-time data
+  quantity?: number;
+  costBasis?: number;
 }
 
 interface Bill {
@@ -669,8 +671,20 @@ function HoldingsPage({ state, setState }: { state: AppState; setState: (s: AppS
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const totalValue = state.holdings.reduce((s, h) => s + h.value, 0);
-  const totalPrev = state.holdings.reduce((s, h) => s + h.previousValue, 0);
+  const totalValue = state.holdings.reduce((s, h) => {
+    if (h.type === 'stock') {
+      const qty = h.quantity || 0;
+      return s + (qty > 0 ? h.value * qty : h.value);
+    }
+    return s + h.value;
+  }, 0);
+  const totalPrev = state.holdings.reduce((s, h) => {
+    if (h.type === 'stock') {
+      const qty = h.quantity || 0;
+      return s + (qty > 0 ? h.previousValue * qty : h.previousValue);
+    }
+    return s + h.previousValue;
+  }, 0);
   const totalChange = getPercentChange(totalValue, totalPrev);
   
   const stockHoldings = state.holdings.filter(h => h.type === 'stock' && h.symbol);
@@ -724,7 +738,25 @@ function HoldingsPage({ state, setState }: { state: AppState; setState: (s: AppS
       {stockHoldings.length > 0 && (
         <>
           <div className="holdings-section-header"><Icons.Stock /><h3>Stocks</h3>{!state.settings.finnhubApiKey && <span className="api-hint">Add Finnhub API key in Settings for real-time prices</span>}</div>
-          <div className="holdings-list">{stockHoldings.map(h => { const change = getPercentChange(h.value, h.previousValue); const alloc = totalValue > 0 ? (h.value / totalValue) * 100 : 0; return (<div key={h.id} className="holding-list-item"><div className={`holding-icon stock`}><Icons.Stock /></div><div className="holding-details"><h4>{h.symbol}</h4><span>{h.name}</span></div><div className="holding-allocation"><div className="allocation-bar"><div className="allocation-fill" style={{ width: `${alloc}%` }}></div></div><span>{alloc.toFixed(1)}% of portfolio</span></div><div className="holding-values"><div className="holding-current">{formatCurrency(h.value)}</div><div className={`holding-change ${change >= 0 ? 'positive' : 'negative'}`}>{change >= 0 ? '+' : ''}{change.toFixed(2)}%</div></div><div className="holding-actions"><button className="icon-btn" onClick={() => setEditingId(h.id)}><Icons.Edit /></button><button className="icon-btn danger" onClick={() => handleDelete(h.id)}><Icons.Trash /></button></div></div>); })}</div>
+          <div className="holdings-list">{stockHoldings.map(h => {
+            const change = getPercentChange(h.value, h.previousValue);
+            const qty = h.quantity || 0;
+            const marketValue = qty > 0 ? h.value * qty : h.value;
+            const alloc = totalValue > 0 ? (marketValue / totalValue) * 100 : 0;
+            const metaParts = [];
+            if (h.name) metaParts.push(h.name);
+            if (qty > 0) metaParts.push(`${qty} sh @ ${formatCurrency(h.value)}`);
+            if (h.costBasis && qty > 0) metaParts.push(`Basis ${formatCurrency(h.costBasis)}`);
+            return (
+              <div key={h.id} className="holding-list-item">
+                <div className={`holding-icon stock`}><Icons.Stock /></div>
+                <div className="holding-details"><h4>{h.symbol}</h4><span>{metaParts.join(' • ')}</span></div>
+                <div className="holding-allocation"><div className="allocation-bar"><div className="allocation-fill" style={{ width: `${alloc}%` }}></div></div><span>{alloc.toFixed(1)}% of portfolio</span></div>
+                <div className="holding-values"><div className="holding-current">{formatCurrency(marketValue)}</div><div className={`holding-change ${change >= 0 ? 'positive' : 'negative'}`}>{change >= 0 ? '+' : ''}{change.toFixed(2)}%</div></div>
+                <div className="holding-actions"><button className="icon-btn" onClick={() => setEditingId(h.id)}><Icons.Edit /></button><button className="icon-btn danger" onClick={() => handleDelete(h.id)}><Icons.Trash /></button></div>
+              </div>
+            );
+          })}</div>
         </>
       )}
       
@@ -754,6 +786,8 @@ function HoldingForm({ holding, onSubmit, onCancel }: { holding?: Holding; onSub
   const [name, setName] = useState(holding?.name || '');
   const [symbol, setSymbol] = useState(holding?.symbol || '');
   const [value, setValue] = useState(holding?.value?.toString() || '');
+  const [quantity, setQuantity] = useState(holding?.quantity?.toString() || '');
+  const [costBasis, setCostBasis] = useState(holding?.costBasis?.toString() || '');
   const [icon, setIcon] = useState(holding?.icon || '💰');
   
   const handleSubmit = (e: React.FormEvent) => {
@@ -764,6 +798,8 @@ function HoldingForm({ holding, onSubmit, onCancel }: { holding?: Holding; onSub
         name: name || symbol.toUpperCase(),
         type: 'stock',
         symbol: symbol.toUpperCase(),
+        quantity: parseFloat(quantity) || 0,
+        costBasis: parseFloat(costBasis) || 0,
         value: parseFloat(value) || 0,
         previousValue: holding?.previousValue || parseFloat(value) || 0,
         icon: '📈',
@@ -800,8 +836,18 @@ function HoldingForm({ holding, onSubmit, onCancel }: { holding?: Holding; onSub
               <input type="text" value={symbol} onChange={e => setSymbol(e.target.value.toUpperCase())} placeholder="AAPL" required />
             </div>
             <div className="form-group">
-              <label>Shares (optional)</label>
-              <input type="number" step="0.0001" value={value} onChange={e => setValue(e.target.value)} placeholder="100" />
+              <label>Quantity (shares)</label>
+              <input type="number" step="0.0001" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="100" />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Current Price (per share)</label>
+              <input type="number" step="0.0001" value={value} onChange={e => setValue(e.target.value)} placeholder="150.00" />
+            </div>
+            <div className="form-group">
+              <label>Cost Basis (per share)</label>
+              <input type="number" step="0.0001" value={costBasis} onChange={e => setCostBasis(e.target.value)} placeholder="120.00" />
             </div>
           </div>
           <div className="form-group">
