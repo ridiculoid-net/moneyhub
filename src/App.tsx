@@ -17,7 +17,13 @@ interface Entry {
 interface Budget {
   id: string;
   category: string;
+  slug: string;
+  type: BudgetType;
   allocated: number;
+  rollover: boolean;
+  priority: number;
+  protected: boolean;
+  overspendPolicy: OverspendPolicy;
   color: string;
 }
 
@@ -60,6 +66,24 @@ interface AppState {
 }
 
 type TimeFilter = 'cycle' | 'mtd' | 'ytd';
+type BudgetType = 'core' | 'rollover' | 'fixed' | 'savings' | 'buffer' | 'bonus';
+type OverspendPolicy = 'to_buffer' | 'block';
+
+interface BudgetCycle {
+  id: string;
+  startDate: string;
+  endDate: string;
+  paycheckAmount: number;
+}
+
+interface EnvelopeCycleState {
+  cycleId: string;
+  budgetId: string;
+  fundedAmount: number;
+  spentAmount: number;
+  availableStart: number;
+  availableEnd: number;
+}
 
 // ============================================
 // ICONS
@@ -106,19 +130,19 @@ const defaultSettings: Settings = {
 };
 
 const defaultBudgets: Budget[] = [
-  { id: '1', category: 'Groceries (protected)', allocated: 0, color: '#22c55e' },
-  { id: '2', category: 'Transportation', allocated: 0, color: '#3b82f6' },
-  { id: '3', category: 'Subscriptions', allocated: 0, color: '#8b5cf6' },
-  { id: '4', category: 'Clothing', allocated: 0, color: '#ec4899' },
-  { id: '5', category: 'Alcohol', allocated: 0, color: '#f97316' },
-  { id: '6', category: 'Flexible Fun', allocated: 0, color: '#eab308' },
-  { id: '7', category: 'Health', allocated: 0, color: '#06b6d4' },
-  { id: '8', category: 'Personal Care', allocated: 0, color: '#ef4444' },
-  { id: '9', category: 'Gifts', allocated: 0, color: '#22c55e' },
-  { id: '10', category: 'Savings (locked)', allocated: 0, color: '#3b82f6' },
-  { id: '11', category: 'Fixed bills', allocated: 0, color: '#8b5cf6' },
-  { id: '12', category: 'Buffer', allocated: 0, color: '#ec4899' },
-  { id: '13', category: 'Bonuses', allocated: 0, color: '#f97316' },
+  { id: '1', category: 'Groceries (protected)', slug: 'groceries', type: 'core', allocated: 0, rollover: false, priority: 10, protected: true, overspendPolicy: 'to_buffer', color: '#22c55e' },
+  { id: '2', category: 'Transportation', slug: 'transportation', type: 'core', allocated: 0, rollover: false, priority: 20, protected: false, overspendPolicy: 'to_buffer', color: '#3b82f6' },
+  { id: '3', category: 'Subscriptions', slug: 'subscriptions', type: 'core', allocated: 0, rollover: false, priority: 30, protected: false, overspendPolicy: 'to_buffer', color: '#8b5cf6' },
+  { id: '4', category: 'Clothing', slug: 'clothing', type: 'core', allocated: 0, rollover: false, priority: 40, protected: false, overspendPolicy: 'to_buffer', color: '#ec4899' },
+  { id: '5', category: 'Alcohol', slug: 'alcohol', type: 'core', allocated: 0, rollover: false, priority: 50, protected: false, overspendPolicy: 'to_buffer', color: '#f97316' },
+  { id: '6', category: 'Flexible Fun', slug: 'flexible-fun', type: 'core', allocated: 0, rollover: false, priority: 60, protected: false, overspendPolicy: 'to_buffer', color: '#eab308' },
+  { id: '7', category: 'Health', slug: 'health', type: 'rollover', allocated: 0, rollover: true, priority: 10, protected: false, overspendPolicy: 'to_buffer', color: '#06b6d4' },
+  { id: '8', category: 'Personal Care', slug: 'personal-care', type: 'rollover', allocated: 0, rollover: true, priority: 20, protected: false, overspendPolicy: 'to_buffer', color: '#ef4444' },
+  { id: '9', category: 'Gifts', slug: 'gifts', type: 'rollover', allocated: 0, rollover: true, priority: 30, protected: false, overspendPolicy: 'to_buffer', color: '#22c55e' },
+  { id: '10', category: 'Savings (locked)', slug: 'savings', type: 'savings', allocated: 0, rollover: false, priority: 10, protected: false, overspendPolicy: 'block', color: '#3b82f6' },
+  { id: '11', category: 'Fixed bills', slug: 'fixed-bills', type: 'fixed', allocated: 0, rollover: false, priority: 10, protected: false, overspendPolicy: 'to_buffer', color: '#8b5cf6' },
+  { id: '12', category: 'Buffer', slug: 'buffer', type: 'buffer', allocated: 0, rollover: true, priority: 10, protected: false, overspendPolicy: 'to_buffer', color: '#ec4899' },
+  { id: '13', category: 'Bonuses', slug: 'bonuses', type: 'bonus', allocated: 0, rollover: false, priority: 10, protected: false, overspendPolicy: 'to_buffer', color: '#f97316' },
 ];
 
 const defaultHoldings: Holding[] = [];
@@ -130,6 +154,152 @@ const defaultEntries: Entry[] = [];
 // ============================================
 // UTILITY FUNCTIONS
 // ============================================
+
+const slugify = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+const getCycleIntervalDays = (freq: Settings['payFrequency']): number => (freq === 'weekly' ? 7 : freq === 'biweekly' ? 14 : 30);
+const toDateKey = (d: Date): string => d.toISOString().split('T')[0];
+const addDays = (d: Date, days: number): Date => { const nd = new Date(d); nd.setDate(nd.getDate() + days); return nd; };
+const typeOrder: BudgetType[] = ['savings', 'fixed', 'core', 'rollover', 'bonus', 'buffer'];
+const defaultPriorityForType = (type: BudgetType): number => ({ savings: 10, fixed: 20, core: 30, rollover: 40, bonus: 50, buffer: 60 }[type]);
+const inferTypeFromCategory = (category: string): BudgetType => {
+  const name = category.toLowerCase();
+  if (name.includes('savings')) return 'savings';
+  if (name.includes('buffer')) return 'buffer';
+  if (name.includes('fixed')) return 'fixed';
+  if (name.includes('bonus')) return 'bonus';
+  if (name.includes('health') || name.includes('personal care') || name.includes('gift')) return 'rollover';
+  return 'core';
+};
+
+const normalizeBudget = (b: Budget): Budget => {
+  const category = b.category || 'Unnamed';
+  const type = b.type || inferTypeFromCategory(category);
+  return {
+    ...b,
+    category,
+    slug: b.slug || slugify(category),
+    type,
+    allocated: typeof b.allocated === 'number' ? b.allocated : 0,
+    rollover: b.rollover ?? (type === 'rollover' || type === 'buffer'),
+    priority: typeof b.priority === 'number' ? b.priority : defaultPriorityForType(type),
+    protected: b.protected ?? category.toLowerCase().includes('groceries'),
+    overspendPolicy: b.overspendPolicy || 'to_buffer',
+    color: b.color || '#8b5cf6',
+  };
+};
+
+const allocatePaycheck = (budgets: Budget[], paycheckAmount: number): Record<string, number> => {
+  const ordered = [...budgets].sort((a, b) => {
+    const orderDiff = typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type);
+    return orderDiff !== 0 ? orderDiff : a.priority - b.priority;
+  });
+  let remaining = paycheckAmount;
+  const funded: Record<string, number> = {};
+  ordered.forEach(b => {
+    if (remaining <= 0) {
+      funded[b.id] = 0;
+      return;
+    }
+    if (b.type === 'buffer') {
+      funded[b.id] = remaining;
+      remaining = 0;
+      return;
+    }
+    const cap = Math.max(0, b.allocated || 0);
+    const amount = Math.min(cap, remaining);
+    funded[b.id] = amount;
+    remaining -= amount;
+  });
+  return funded;
+};
+
+const buildCycles = (settings: Settings): BudgetCycle[] => {
+  if (!settings.firstPayDate) return [];
+  const interval = getCycleIntervalDays(settings.payFrequency);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let cursor = new Date(settings.firstPayDate); cursor.setHours(0, 0, 0, 0);
+  const cycles: BudgetCycle[] = [];
+  if (cursor > today) {
+    const endDate = addDays(cursor, interval - 1);
+    cycles.push({ id: toDateKey(cursor), startDate: toDateKey(cursor), endDate: toDateKey(endDate), paycheckAmount: settings.payAmount });
+    return cycles;
+  }
+  while (cursor <= today) {
+    const startDate = toDateKey(cursor);
+    const endDate = addDays(cursor, interval - 1);
+    cycles.push({ id: startDate, startDate, endDate: toDateKey(endDate), paycheckAmount: settings.payAmount });
+    cursor = addDays(cursor, interval);
+  }
+  return cycles;
+};
+
+const findCycleIdForDate = (date: string, cycles: BudgetCycle[]): string | null => {
+  for (let i = cycles.length - 1; i >= 0; i--) {
+    const cycle = cycles[i];
+    if (date >= cycle.startDate && date <= cycle.endDate) return cycle.id;
+  }
+  return null;
+};
+
+const computeCurrentCycleData = (settings: Settings, budgets: Budget[], entries: Entry[]) => {
+  const cycles = buildCycles(settings);
+  if (cycles.length === 0) {
+    return { currentCycle: null as BudgetCycle | null, statesByBudgetId: new Map<string, EnvelopeCycleState>(), states: [] as EnvelopeCycleState[] };
+  }
+  const currentCycle = cycles[cycles.length - 1];
+  const budgetByCategory = new Map(budgets.map(b => [b.category, b]));
+  const spendByCycleBudget = new Map<string, Map<string, number>>();
+  entries.filter(e => e.type === 'expense').forEach(e => {
+    const budget = budgetByCategory.get(e.category);
+    if (!budget) return;
+    const cycleId = findCycleIdForDate(e.date, cycles);
+    if (!cycleId) return;
+    const cycleMap = spendByCycleBudget.get(cycleId) || new Map<string, number>();
+    cycleMap.set(budget.id, (cycleMap.get(budget.id) || 0) + e.amount);
+    spendByCycleBudget.set(cycleId, cycleMap);
+  });
+
+  const fundedByBudgetId = allocatePaycheck(budgets, settings.payAmount || 0);
+  let prevStates = new Map<string, EnvelopeCycleState>();
+  let currentStates: EnvelopeCycleState[] = [];
+  for (const cycle of cycles) {
+    const spendMap = spendByCycleBudget.get(cycle.id) || new Map<string, number>();
+    const states = budgets.map(b => {
+      const fundedAmount = fundedByBudgetId[b.id] || 0;
+      const carryIn = b.rollover ? (prevStates.get(b.id)?.availableEnd || 0) : 0;
+      const availableStart = carryIn + fundedAmount;
+      const spentAmount = spendMap.get(b.id) || 0;
+      const availableEnd = Math.max(0, availableStart - spentAmount);
+      return { cycleId: cycle.id, budgetId: b.id, fundedAmount, spentAmount, availableStart, availableEnd };
+    });
+
+    const bufferBudget = budgets.find(b => b.type === 'buffer');
+    if (bufferBudget) {
+      const bufferState = states.find(s => s.budgetId === bufferBudget.id);
+      if (bufferState) {
+        let overageTotal = 0;
+        states.forEach(state => {
+          if (state.budgetId === bufferBudget.id) return;
+          const budget = budgets.find(b => b.id === state.budgetId);
+          if (!budget || budget.overspendPolicy !== 'to_buffer') return;
+          overageTotal += Math.max(0, state.spentAmount - state.availableStart);
+        });
+        if (overageTotal > 0) {
+          bufferState.spentAmount += overageTotal;
+          bufferState.availableEnd = Math.max(0, bufferState.availableStart - bufferState.spentAmount);
+        }
+      }
+    }
+
+    if (cycle.id === currentCycle.id) {
+      currentStates = states;
+      break;
+    }
+    prevStates = new Map(states.map(s => [s.budgetId, s]));
+  }
+
+  return { currentCycle, statesByBudgetId: new Map(currentStates.map(s => [s.budgetId, s])), states: currentStates };
+};
 
 const generateId = (): string => Date.now().toString(36) + Math.random().toString(36).substr(2);
 const formatCurrency = (v: number): string => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v);
@@ -188,7 +358,23 @@ async function fetchStockPrice(symbol: string, apiKey: string): Promise<{ price:
 // ============================================
 
 const STORAGE_KEY = 'moneyhub_data';
-const loadState = (): AppState => { try { const s = localStorage.getItem(STORAGE_KEY); if (s) return JSON.parse(s); } catch {} return { entries: defaultEntries, budgets: defaultBudgets, holdings: defaultHoldings, bills: defaultBills, settings: defaultSettings }; };
+const loadState = (): AppState => {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (s) {
+      const parsed = JSON.parse(s);
+      const budgets = Array.isArray(parsed.budgets) ? parsed.budgets.map((b: Budget) => normalizeBudget(b)) : defaultBudgets;
+      return {
+        entries: Array.isArray(parsed.entries) ? parsed.entries : defaultEntries,
+        budgets,
+        holdings: Array.isArray(parsed.holdings) ? parsed.holdings : defaultHoldings,
+        bills: Array.isArray(parsed.bills) ? parsed.bills : defaultBills,
+        settings: { ...defaultSettings, ...(parsed.settings || {}) },
+      };
+    }
+  } catch {}
+  return { entries: defaultEntries, budgets: defaultBudgets, holdings: defaultHoldings, bills: defaultBills, settings: defaultSettings };
+};
 const saveState = (state: AppState): void => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {} };
 
 // ============================================
@@ -253,11 +439,12 @@ function SetupPrompt({ onGoToSettings }: { onGoToSettings: () => void }) {
 function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; setState: (s: AppState) => void; onGoToSettings: () => void }) {
   const [showAddEntry, setShowAddEntry] = useState(false);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('cycle');
+  const { currentCycle, statesByBudgetId } = useMemo(() => computeCurrentCycleData(state.settings, state.budgets, state.entries), [state.settings, state.budgets, state.entries]);
   
   const needsSetup = !state.settings.firstPayDate || state.settings.payAmount === 0;
   
   const nextPayday = getNextPayday(state.settings.firstPayDate, state.settings.payFrequency);
-  const cycleStart = getCurrentCycleStart(state.settings.firstPayDate, state.settings.payFrequency);
+  const cycleStart = currentCycle?.startDate || getCurrentCycleStart(state.settings.firstPayDate, state.settings.payFrequency);
   const monthStart = getMonthStart();
   const yearStart = getYearStart();
   const daysUntilPayday = getDaysUntil(nextPayday);
@@ -296,9 +483,13 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
 
   const handleAddEntry = (entry: Omit<Entry, 'id'>) => { const ns = { ...state, entries: [{ ...entry, id: generateId() }, ...state.entries] }; setState(ns); saveState(ns); setShowAddEntry(false); };
 
+  const bufferBudget = state.budgets.find(b => b.type === 'buffer');
+  const bufferState = bufferBudget ? statesByBudgetId.get(bufferBudget.id) : undefined;
+  const bufferAvailable = bufferState ? bufferState.availableEnd : state.settings.bufferAmount;
+
   const budgetCards = [
     { id: 'budget', label: 'Budget Remaining', value: formatCurrency(budgetRemaining), badge: `${budgetPercent}%`, color: 'purple', icon: Icons.Wallet, ticker: 'BUDGET' },
-    { id: 'buffer', label: 'Buffer Available', value: formatCurrency(state.settings.bufferAmount), badge: '100%', color: 'cyan', icon: Icons.Shield, ticker: 'BUFFER' },
+    { id: 'buffer', label: 'Buffer Available', value: formatCurrency(bufferAvailable), badge: '100%', color: 'cyan', icon: Icons.Shield, ticker: 'BUFFER' },
     { id: 'savings', label: 'Savings YTD', value: formatCurrency(savingsYTD), badge: state.settings.savingsGoal > 0 ? `${((savingsYTD / state.settings.savingsGoal) * 100).toFixed(0)}%` : '0%', color: 'orange', icon: Icons.PiggyBank, ticker: 'SAVE' },
     { id: 'payday', label: 'Next Payday', value: nextPayday ? formatDate(nextPayday) : 'Not Set', badge: nextPayday ? `${daysUntilPayday}d` : '--', color: 'green', icon: Icons.Calendar, ticker: 'PAY' },
     { id: 'total', label: 'Total Holdings', value: formatCurrency(totalHoldings), badge: '+0.0%', color: 'pink', icon: Icons.DollarSign, ticker: 'TOTAL' },
@@ -602,21 +793,49 @@ function EntriesPage({ state, setState }: { state: AppState; setState: (s: AppSt
 function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppState) => void }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const cycleStart = getCurrentCycleStart(state.settings.firstPayDate, state.settings.payFrequency);
-  const cycleEntries = state.entries.filter(e => e.date >= cycleStart && e.type === 'expense');
-  const totalAllocated = state.budgets.reduce((s, b) => s + b.allocated, 0);
+  const { currentCycle, statesByBudgetId } = useMemo(() => computeCurrentCycleData(state.settings, state.budgets, state.entries), [state.settings, state.budgets, state.entries]);
+  const cycleStart = currentCycle?.startDate || getCurrentCycleStart(state.settings.firstPayDate, state.settings.payFrequency);
+  const cycleEnd = currentCycle?.endDate || '';
+  const cycleEntries = state.entries.filter(e => e.type === 'expense' && e.date >= cycleStart && (!cycleEnd || e.date <= cycleEnd));
+  const totalAllocated = state.budgets.reduce((s, b) => s + (statesByBudgetId.get(b.id)?.fundedAmount || 0), 0);
   const totalSpent = cycleEntries.reduce((s, e) => s + e.amount, 0);
-  const handleSave = (b: Budget) => { const ns = { ...state, budgets: editingId ? state.budgets.map(x => x.id === editingId ? b : x) : [...state.budgets, { ...b, id: generateId() }] }; setState(ns); saveState(ns); setEditingId(null); setShowAdd(false); };
+  const handleSave = (b: Budget) => {
+    const nextBudget = normalizeBudget(b);
+    const ns = {
+      ...state,
+      budgets: editingId ? state.budgets.map(x => x.id === editingId ? nextBudget : x) : [...state.budgets, { ...nextBudget, id: generateId() }],
+    };
+    setState(ns);
+    saveState(ns);
+    setEditingId(null);
+    setShowAdd(false);
+  };
   const handleDelete = (id: string) => { const ns = { ...state, budgets: state.budgets.filter(b => b.id !== id) }; setState(ns); saveState(ns); };
   return (
     <div className="page-content">
       <div className="page-header"><div><h1>Budgets</h1><p className="page-subtitle">Manage your spending categories</p></div><button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Category</span></button></div>
-      <div className="summary-cards"><div className="summary-card"><div className="summary-label">Total Allocated</div><div className="summary-value">{formatCurrency(totalAllocated)}</div></div><div className="summary-card"><div className="summary-label">Total Spent</div><div className="summary-value">{formatCurrency(totalSpent)}</div></div><div className="summary-card"><div className="summary-label">Remaining</div><div className={`summary-value ${totalAllocated - totalSpent < 0 ? 'danger' : ''}`}>{formatCurrency(totalAllocated - totalSpent)}</div></div></div>
+      <div className="summary-cards"><div className="summary-card"><div className="summary-label">Total Funded (Cycle)</div><div className="summary-value">{formatCurrency(totalAllocated)}</div></div><div className="summary-card"><div className="summary-label">Total Spent (Cycle)</div><div className="summary-value">{formatCurrency(totalSpent)}</div></div><div className="summary-card"><div className="summary-label">Remaining</div><div className={`summary-value ${totalAllocated - totalSpent < 0 ? 'danger' : ''}`}>{formatCurrency(totalAllocated - totalSpent)}</div></div></div>
       <div className="budgets-grid">{state.budgets.map(b => { 
-        const spent = cycleEntries.filter(e => e.category === b.category).reduce((s, e) => s + e.amount, 0); 
-        const pct = b.allocated > 0 ? Math.min((spent / b.allocated) * 100, 100) : (spent > 0 ? 100 : 0); 
-        const over = spent > b.allocated && b.allocated > 0; 
-        const notSet = b.allocated === 0;
+        const cycleState = statesByBudgetId.get(b.id);
+        const funded = cycleState?.fundedAmount || 0;
+        const availableStart = cycleState?.availableStart || 0;
+        const spent = cycleState?.spentAmount || 0;
+        const availableEnd = cycleState?.availableEnd || 0;
+        const carryIn = Math.max(0, availableStart - funded);
+        const pctBase = availableStart > 0 ? availableStart : (b.allocated > 0 ? b.allocated : 0);
+        const pct = pctBase > 0 ? Math.min((spent / pctBase) * 100, 100) : (spent > 0 ? 100 : 0); 
+        const over = spent > availableStart && availableStart > 0; 
+        const notSet = b.allocated === 0 && b.type !== 'buffer';
+        const primaryLabel = b.rollover
+          ? `Carry ${formatCurrency(carryIn)} • Funded ${formatCurrency(funded)}`
+          : `Funded ${formatCurrency(funded)} / Cap ${formatCurrency(b.allocated)}`;
+        const secondaryLabel = over
+          ? 'Over budget!'
+          : notSet
+            ? 'Click to set budget'
+            : b.rollover
+              ? `${formatCurrency(availableEnd)} available`
+              : `${formatCurrency(availableEnd)} left`;
         return (
           <div
             key={b.id}
@@ -635,10 +854,8 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
               <div className="budget-progress-bar" style={{ width: notSet ? '0%' : `${pct}%`, background: over ? '#ef4444' : b.color }}></div>
             </div>
             <div className="budget-item-footer">
-              <span>{formatCurrency(spent)} / {notSet ? '--' : formatCurrency(b.allocated)}</span>
-              <span className={over ? 'over-text' : notSet ? 'not-set-text' : ''}>
-                {over ? 'Over budget!' : notSet ? 'Click to set budget' : `${formatCurrency(b.allocated - spent)} left`}
-              </span>
+              <span>{primaryLabel}</span>
+              <span className={over ? 'over-text' : notSet ? 'not-set-text' : ''}>{secondaryLabel}</span>
             </div>
           </div>
         ); 
@@ -653,8 +870,23 @@ function BudgetForm({ budget, onSubmit, onCancel }: { budget?: Budget; onSubmit:
   const [allocated, setAllocated] = useState(budget?.allocated?.toString() || '');
   const [color, setColor] = useState(budget?.color || '#8b5cf6');
   const colors = ['#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#eab308', '#06b6d4', '#ef4444'];
-  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onSubmit({ id: budget?.id || '', category, allocated: parseFloat(allocated) || 0, color }); };
-  return (<form className="entry-form" onSubmit={handleSubmit}><div className="form-group"><label>Category Name</label><input type="text" value={category} onChange={e => setCategory(e.target.value)} placeholder="Groceries" required /></div><div className="form-group"><label>Budget Amount</label><input type="number" step="0.01" value={allocated} onChange={e => setAllocated(e.target.value)} placeholder="500.00" required /></div><div className="form-group"><label>Color</label><div className="color-picker">{colors.map(c => (<button key={c} type="button" className={`color-swatch ${color === c ? 'active' : ''}`} style={{ background: c }} onClick={() => setColor(c)} />))}</div></div><div className="form-actions"><button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button><button type="submit" className="btn-primary">Save</button></div></form>);
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const inferredType = budget?.type || inferTypeFromCategory(category);
+    onSubmit({
+      id: budget?.id || '',
+      category,
+      slug: slugify(category),
+      type: inferredType,
+      allocated: parseFloat(allocated) || 0,
+      rollover: budget?.rollover ?? (inferredType === 'rollover' || inferredType === 'buffer'),
+      priority: budget?.priority ?? defaultPriorityForType(inferredType),
+      protected: budget?.protected ?? category.toLowerCase().includes('groceries'),
+      overspendPolicy: budget?.overspendPolicy || 'to_buffer',
+      color,
+    });
+  };
+  return (<form className="entry-form" onSubmit={handleSubmit}><div className="form-group"><label>Category Name</label><input type="text" value={category} onChange={e => setCategory(e.target.value)} placeholder="Groceries" required /></div><div className="form-group"><label>Cap / Target (per paycheck)</label><input type="number" step="0.01" value={allocated} onChange={e => setAllocated(e.target.value)} placeholder="500.00" required /></div><div className="form-group"><label>Color</label><div className="color-picker">{colors.map(c => (<button key={c} type="button" className={`color-swatch ${color === c ? 'active' : ''}`} style={{ background: c }} onClick={() => setColor(c)} />))}</div></div><div className="form-actions"><button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button><button type="submit" className="btn-primary">Save</button></div></form>);
 }
 
 // ============================================
