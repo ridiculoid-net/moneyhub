@@ -171,6 +171,16 @@ const inferTypeFromCategory = (category: string): BudgetType => {
   return 'core';
 };
 
+const getTypeBadgeLabel = (type: BudgetType): string => {
+  if (type === 'core') return 'RESET';
+  if (type === 'rollover') return 'ROLLOVER';
+  if (type === 'fixed') return 'FIXED';
+  if (type === 'savings') return 'LOCKED';
+  if (type === 'buffer') return 'BUFFER';
+  if (type === 'bonus') return 'BONUS';
+  return '';
+};
+
 const normalizeBudget = (b: Budget): Budget => {
   const category = b.category || 'Unnamed';
   const type = b.type || inferTypeFromCategory(category);
@@ -465,7 +475,10 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
   
   const savingsYTD = state.entries.filter(e => e.date >= yearStart && e.type === 'income').reduce((s, e) => s + e.amount, 0) * 0.15;
   const totalHoldings = state.holdings.reduce((s, h) => s + h.value, 0);
-  const categorySpending = state.budgets.map(b => { const spent = filteredEntries.filter(e => e.category === b.category).reduce((s, e) => s + e.amount, 0); return { ...b, spent, remaining: b.allocated - spent }; });
+  const categorySpending = state.budgets.map(b => {
+    const spent = filteredEntries.filter(e => e.category === b.category).reduce((s, e) => s + e.amount, 0);
+    return { ...b, spent, remaining: b.allocated - spent };
+  });
   const topCategory = [...categorySpending].sort((a, b) => b.spent - a.spent)[0];
   
   const monthlyData = useMemo(() => {
@@ -531,7 +544,25 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
           <div className="panel-header"><span className="panel-title">{filterLabel}</span></div>
           <div className="balance-card primary"><div className="balance-card-label">{timeFilter === 'cycle' ? 'Cycle Budget' : 'Income'}</div><div className="balance-card-row"><div className="balance-card-amount">{formatCurrency(timeFilter === 'cycle' ? state.settings.payAmount : filteredIncome)}</div><span className="balance-card-badge">{timeFilter === 'cycle' ? state.settings.payFrequency : filterLabel}</span></div></div>
           <div className="balance-card secondary"><div className="balance-card-label">Spent {filterLabel}</div><div className="balance-card-row"><div className="balance-card-amount">{formatCurrency(filteredSpent)}</div><button className="balance-action-btn" onClick={() => setShowAddEntry(true)}><Icons.Plus /></button></div></div>
-          {topCategory && topCategory.spent > 0 && (<div className="top-category"><div className="top-category-label">Top Category</div><div className="category-item"><div className="category-icon" style={{ background: `linear-gradient(135deg, ${topCategory.color}, ${topCategory.color}88)` }}>{topCategory.category.slice(0, 2).toUpperCase()}</div><div className="category-info"><h4>{topCategory.category}</h4><div className="category-details"><div className="category-detail"><span className="category-detail-label">Budget</span><span className="category-detail-value">{formatCurrency(topCategory.allocated)}</span></div><div className="category-detail"><span className="category-detail-label">Spent</span><span className="category-detail-value">{formatCurrency(topCategory.spent)}</span></div></div></div><div className="category-stats"><div className="category-ticker">{topCategory.category.slice(0, 4).toUpperCase()}</div><div className="category-change">-{formatCurrency(topCategory.spent)}</div></div></div></div>)}
+          {topCategory && topCategory.spent > 0 && (
+            <div className="top-category">
+              <div className="top-category-label">Top Category</div>
+              <div className="category-item">
+                <div className="category-icon" style={{ background: `linear-gradient(135deg, ${topCategory.color}, ${topCategory.color}88)` }}>{topCategory.category.slice(0, 2).toUpperCase()}</div>
+                <div className="category-info">
+                  <div className="category-title-row">
+                    <h4>{topCategory.category}</h4>
+                    <span className={`budget-badge ${topCategory.type}`}>{getTypeBadgeLabel(topCategory.type)}</span>
+                  </div>
+                  <div className="category-details">
+                    <div className="category-detail"><span className="category-detail-label">Budget</span><span className="category-detail-value">{formatCurrency(topCategory.allocated)}</span></div>
+                    <div className="category-detail"><span className="category-detail-label">Spent</span><span className="category-detail-value">{formatCurrency(topCategory.spent)}</span></div>
+                  </div>
+                </div>
+                <div className="category-stats"><div className="category-ticker">{topCategory.category.slice(0, 4).toUpperCase()}</div><div className="category-change">-{formatCurrency(topCategory.spent)}</div></div>
+              </div>
+            </div>
+          )}
         </div>
         <div className="panel chart-panel">
           <div className="panel-header"><span className="panel-title">Spending Trend</span><div className="panel-tabs">{['1D', '5D', '1M', '6M', '1Y'].map(t => (<button key={t} className={`panel-tab ${t === '1M' ? 'active' : ''}`}>{t}</button>))}</div></div>
@@ -544,7 +575,15 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
           <div className="snapshot-grid">
             <div className="snapshot-item"><div className="snapshot-item-label">Daily Limit</div><div className="snapshot-item-value">{formatCurrency(budgetRemaining / Math.max(daysUntilPayday, 1))}</div></div>
             <div className="snapshot-item"><div className="snapshot-item-label">Days Left</div><div className="snapshot-item-value highlight">{daysUntilPayday}</div></div>
-            {categorySpending.filter(c => c.allocated > 0).slice(0, 2).map(c => (<div key={c.id} className="snapshot-item"><div className="snapshot-item-label">{c.category}</div><div className={`snapshot-item-value ${c.remaining < 0 ? 'danger' : c.remaining < c.allocated * 0.2 ? 'warning' : ''}`}>{formatCurrency(c.remaining)}</div></div>))}
+            {categorySpending.filter(c => c.allocated > 0).slice(0, 2).map(c => (
+              <div key={c.id} className="snapshot-item">
+                <div className="snapshot-item-label snapshot-label-row">
+                  <span>{c.category}</span>
+                  <span className={`budget-badge ${c.type} snapshot-badge`}>{getTypeBadgeLabel(c.type)}</span>
+                </div>
+                <div className={`snapshot-item-value ${c.remaining < 0 ? 'danger' : c.remaining < c.allocated * 0.2 ? 'warning' : ''}`}>{formatCurrency(c.remaining)}</div>
+              </div>
+            ))}
             <div className="snapshot-range"><div className="range-labels"><span className="range-label">Cycle Start</span><span className="range-label">Cycle End</span></div><div className="range-values"><span className="range-value">$0</span><span className="range-value">{formatCurrency(state.settings.payAmount)}</span></div><div className="range-bar"><div className="range-indicator" style={{ left: `${Math.min(100, state.settings.payAmount > 0 ? (cycleSpent / state.settings.payAmount) * 100 : 0)}%` }}></div></div><div className="range-current">{formatCurrency(budgetRemaining)} left</div></div>
           </div>
         </div>
@@ -575,8 +614,51 @@ function EntryForm({ budgets, onSubmit, onCancel, initialData }: { budgets: Budg
   const [description, setDescription] = useState(initialData?.description || '');
   const [category, setCategory] = useState(initialData?.category || budgets[0]?.category || '');
   const [date, setDate] = useState(initialData?.date || new Date().toISOString().split('T')[0]);
+  const selectedBudget = budgets.find(b => b.category === category);
+  const selectedBadge = selectedBudget ? getTypeBadgeLabel(selectedBudget.type) : '';
   const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); if (!amount || !description) return; onSubmit({ type, amount: parseFloat(amount), description, category: type === 'income' ? 'Income' : category, date }); };
-  return (<form className="entry-form" onSubmit={handleSubmit}><div className="form-row"><div className="form-group"><label>Type</label><div className="toggle-group"><button type="button" className={`toggle-btn ${type === 'expense' ? 'active' : ''}`} onClick={() => setType('expense')}>Expense</button><button type="button" className={`toggle-btn ${type === 'income' ? 'active' : ''}`} onClick={() => setType('income')}>Income</button></div></div></div><div className="form-row"><div className="form-group"><label>Amount</label><input type="number" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} required /></div><div className="form-group"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div></div><div className="form-group"><label>Description</label><input type="text" placeholder="What was this for?" value={description} onChange={e => setDescription(e.target.value)} required /></div>{type === 'expense' && (<div className="form-group"><label>Category</label><select value={category} onChange={e => setCategory(e.target.value)}>{budgets.map(b => (<option key={b.id} value={b.category}>{b.category}</option>))}</select></div>)}<div className="form-actions"><button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button><button type="submit" className="btn-primary">Save Entry</button></div></form>);
+  return (
+    <form className="entry-form" onSubmit={handleSubmit}>
+      <div className="form-row">
+        <div className="form-group">
+          <label>Type</label>
+          <div className="toggle-group">
+            <button type="button" className={`toggle-btn ${type === 'expense' ? 'active' : ''}`} onClick={() => setType('expense')}>Expense</button>
+            <button type="button" className={`toggle-btn ${type === 'income' ? 'active' : ''}`} onClick={() => setType('income')}>Income</button>
+          </div>
+        </div>
+      </div>
+      <div className="form-row">
+        <div className="form-group">
+          <label>Amount</label>
+          <input type="number" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} required />
+        </div>
+        <div className="form-group">
+          <label>Date</label>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+        </div>
+      </div>
+      <div className="form-group">
+        <label>Description</label>
+        <input type="text" placeholder="What was this for?" value={description} onChange={e => setDescription(e.target.value)} required />
+      </div>
+      {type === 'expense' && (
+        <div className="form-group">
+          <label className="form-label-row">
+            <span>Category</span>
+            {selectedBadge && selectedBudget && <span className={`budget-badge ${selectedBudget.type} form-badge`}>{selectedBadge}</span>}
+          </label>
+          <select value={category} onChange={e => setCategory(e.target.value)}>
+            {budgets.map(b => (<option key={b.id} value={b.category}>{b.category}</option>))}
+          </select>
+        </div>
+      )}
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="btn-primary">Save Entry</button>
+      </div>
+    </form>
+  );
 }
 
 // ============================================
@@ -796,6 +878,7 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
   const { currentCycle, statesByBudgetId } = useMemo(() => computeCurrentCycleData(state.settings, state.budgets, state.entries), [state.settings, state.budgets, state.entries]);
   const cycleStart = currentCycle?.startDate || getCurrentCycleStart(state.settings.firstPayDate, state.settings.payFrequency);
   const cycleEnd = currentCycle?.endDate || '';
+  const daysUntilCycleEnd = cycleEnd ? getDaysUntil(cycleEnd) : 0;
   const cycleEntries = state.entries.filter(e => e.type === 'expense' && e.date >= cycleStart && (!cycleEnd || e.date <= cycleEnd));
   const totalAllocated = state.budgets.reduce((s, b) => s + (statesByBudgetId.get(b.id)?.fundedAmount || 0), 0);
   const totalSpent = cycleEntries.reduce((s, e) => s + e.amount, 0);
@@ -813,7 +896,14 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
   const handleDelete = (id: string) => { const ns = { ...state, budgets: state.budgets.filter(b => b.id !== id) }; setState(ns); saveState(ns); };
   return (
     <div className="page-content">
-      <div className="page-header"><div><h1>Budgets</h1><p className="page-subtitle">Manage your spending categories</p></div><button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Category</span></button></div>
+      <div className="page-header">
+        <div>
+          <h1>Budgets</h1>
+          <p className="page-subtitle">Manage your spending categories</p>
+          {cycleEnd && <p className="page-subtitle cycle-hint">Cycle ends in {daysUntilCycleEnd} days</p>}
+        </div>
+        <button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Category</span></button>
+      </div>
       <div className="summary-cards"><div className="summary-card"><div className="summary-label">Total Funded (Cycle)</div><div className="summary-value">{formatCurrency(totalAllocated)}</div></div><div className="summary-card"><div className="summary-label">Total Spent (Cycle)</div><div className="summary-value">{formatCurrency(totalSpent)}</div></div><div className="summary-card"><div className="summary-label">Remaining</div><div className={`summary-value ${totalAllocated - totalSpent < 0 ? 'danger' : ''}`}>{formatCurrency(totalAllocated - totalSpent)}</div></div></div>
       <div className="budgets-grid">{state.budgets.map(b => { 
         const cycleState = statesByBudgetId.get(b.id);
@@ -826,16 +916,27 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
         const pct = pctBase > 0 ? Math.min((spent / pctBase) * 100, 100) : (spent > 0 ? 100 : 0); 
         const over = spent > availableStart && availableStart > 0; 
         const notSet = b.allocated === 0 && b.type !== 'buffer';
-        const primaryLabel = b.rollover
-          ? `Carry ${formatCurrency(carryIn)} • Funded ${formatCurrency(funded)}`
-          : `Funded ${formatCurrency(funded)} / Cap ${formatCurrency(b.allocated)}`;
+        const badgeLabel = getTypeBadgeLabel(b.type);
+        const primaryLabel = b.type === 'buffer'
+          ? `Balance ${formatCurrency(availableEnd)}`
+          : b.type === 'savings'
+            ? `Funded ${formatCurrency(funded)} (locked)`
+            : b.rollover
+              ? `Carry ${formatCurrency(carryIn)} • Funded ${formatCurrency(funded)}`
+              : `Funded ${formatCurrency(funded)} / Cycle Cap ${formatCurrency(b.allocated)}`;
         const secondaryLabel = over
           ? 'Over budget!'
-          : notSet
-            ? 'Click to set budget'
-            : b.rollover
-              ? `${formatCurrency(availableEnd)} available`
-              : `${formatCurrency(availableEnd)} left`;
+          : b.type === 'buffer'
+            ? `This cycle ${availableEnd - availableStart >= 0 ? '+' : ''}${formatCurrency(availableEnd - availableStart)}`
+            : notSet
+              ? 'Click to set budget'
+              : b.type === 'savings'
+                ? 'Locked'
+                : b.rollover && b.allocated > 0 && funded < b.allocated
+                  ? `Target ${formatCurrency(b.allocated)} · Funded ${formatCurrency(funded)}`
+                  : b.rollover
+                    ? `${formatCurrency(availableEnd)} available`
+                    : `${formatCurrency(availableEnd)} left`;
         return (
           <div
             key={b.id}
@@ -845,18 +946,22 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
             <div className="budget-item-header">
               <div className="budget-color" style={{ background: b.color }}></div>
               <h4>{b.category}</h4>
+              {badgeLabel && <span className={`budget-badge ${b.type}`}>{badgeLabel}</span>}
               <div className="budget-item-actions">
                 <button className="icon-btn" onClick={(e) => { e.stopPropagation(); setEditingId(b.id); }}><Icons.Edit /></button>
                 <button className="icon-btn danger" onClick={(e) => { e.stopPropagation(); handleDelete(b.id); }}><Icons.Trash /></button>
               </div>
             </div>
-            <div className="budget-progress">
-              <div className="budget-progress-bar" style={{ width: notSet ? '0%' : `${pct}%`, background: over ? '#ef4444' : b.color }}></div>
-            </div>
+            {b.type !== 'buffer' && (
+              <div className="budget-progress">
+                <div className="budget-progress-bar" style={{ width: notSet ? '0%' : `${pct}%`, background: over ? '#ef4444' : b.color }}></div>
+              </div>
+            )}
             <div className="budget-item-footer">
               <span>{primaryLabel}</span>
               <span className={over ? 'over-text' : notSet ? 'not-set-text' : ''}>{secondaryLabel}</span>
             </div>
+            {b.rollover && <div className="budget-item-note">Carries forward automatically</div>}
           </div>
         ); 
       })}</div>
