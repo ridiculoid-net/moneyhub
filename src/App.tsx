@@ -106,14 +106,19 @@ const defaultSettings: Settings = {
 };
 
 const defaultBudgets: Budget[] = [
-  { id: '1', category: 'Groceries', allocated: 0, color: '#22c55e' },
-  { id: '2', category: 'Dining Out', allocated: 0, color: '#f97316' },
-  { id: '3', category: 'Transportation', allocated: 0, color: '#3b82f6' },
-  { id: '4', category: 'Entertainment', allocated: 0, color: '#ec4899' },
-  { id: '5', category: 'Shopping', allocated: 0, color: '#8b5cf6' },
-  { id: '6', category: 'Utilities', allocated: 0, color: '#06b6d4' },
-  { id: '7', category: 'Subscriptions', allocated: 0, color: '#eab308' },
-  { id: '8', category: 'Other', allocated: 0, color: '#6b7280' },
+  { id: '1', category: 'Groceries (protected)', allocated: 0, color: '#22c55e' },
+  { id: '2', category: 'Transportation', allocated: 0, color: '#3b82f6' },
+  { id: '3', category: 'Subscriptions', allocated: 0, color: '#8b5cf6' },
+  { id: '4', category: 'Clothing', allocated: 0, color: '#ec4899' },
+  { id: '5', category: 'Alcohol', allocated: 0, color: '#f97316' },
+  { id: '6', category: 'Flexible Fun', allocated: 0, color: '#eab308' },
+  { id: '7', category: 'Health', allocated: 0, color: '#06b6d4' },
+  { id: '8', category: 'Personal Care', allocated: 0, color: '#ef4444' },
+  { id: '9', category: 'Gifts', allocated: 0, color: '#22c55e' },
+  { id: '10', category: 'Savings (locked)', allocated: 0, color: '#3b82f6' },
+  { id: '11', category: 'Fixed bills', allocated: 0, color: '#8b5cf6' },
+  { id: '12', category: 'Buffer', allocated: 0, color: '#ec4899' },
+  { id: '13', category: 'Bonuses', allocated: 0, color: '#f97316' },
 ];
 
 const defaultHoldings: Holding[] = [];
