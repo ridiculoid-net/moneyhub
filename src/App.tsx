@@ -574,10 +574,28 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
       const monthStr = date.toISOString().slice(0, 7);
       const monthName = date.toLocaleDateString('en-US', { month: 'short' });
       const monthEntries = state.entries.filter(e => e.date.startsWith(monthStr));
-      months.push({ month: monthName, income: monthEntries.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0), expense: monthEntries.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0) });
+      months.push({
+        month: monthName,
+        income: monthEntries.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0),
+        expense: monthEntries.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0),
+      });
     }
     return months;
   }, [state.entries]);
+
+  const trendData = useMemo(() => {
+    if (timeFilter === 'mtd') {
+      const totalIncome = state.entries.filter(e => e.date >= monthStart && e.type === 'income').reduce((s, e) => s + e.amount, 0);
+      const totalExpense = state.entries.filter(e => e.date >= monthStart && e.type === 'expense').reduce((s, e) => s + e.amount, 0);
+      return [{ month: 'MTD', income: totalIncome, expense: totalExpense }];
+    }
+    if (timeFilter === 'ytd') {
+      const totalIncome = state.entries.filter(e => e.date >= yearStart && e.type === 'income').reduce((s, e) => s + e.amount, 0);
+      const totalExpense = state.entries.filter(e => e.date >= yearStart && e.type === 'expense').reduce((s, e) => s + e.amount, 0);
+      return [{ month: 'YTD', income: totalIncome, expense: totalExpense }];
+    }
+    return monthlyData;
+  }, [timeFilter, state.entries, monthStart, yearStart, monthlyData]);
 
   const handleAddEntry = (entry: Omit<Entry, 'id'>) => {
     const entryWithId = { ...entry, id: generateId() };
@@ -684,7 +702,7 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
         </div>
         <div className="panel chart-panel">
           <div className="panel-header"><span className="panel-title">Spending Trend</span><div className="panel-tabs">{['1D', '5D', '1M', '6M', '1Y'].map(t => (<button key={t} className={`panel-tab ${t === '1M' ? 'active' : ''}`}>{t}</button>))}</div></div>
-          <div className="chart-container"><svg className="chart-svg" viewBox="0 0 500 100" preserveAspectRatio="none"><defs><linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="rgba(139, 92, 246, 0.4)" /><stop offset="100%" stopColor="rgba(139, 92, 246, 0)" /></linearGradient></defs>{(() => { const expenses = monthlyData.map(d => d.expense); const max = Math.max(...expenses, 1); const points = expenses.map((v, i) => `${(i / (expenses.length - 1)) * 500},${100 - (v / max) * 80}`); const pathD = 'M ' + points.join(' L '); return (<><path className="chart-area" d={pathD + ' L 500,100 L 0,100 Z'} /><path className="chart-line" d={pathD} /></>); })()}</svg></div>
+          <div className="chart-container"><svg className="chart-svg" viewBox="0 0 500 100" preserveAspectRatio="none"><defs><linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="rgba(139, 92, 246, 0.4)" /><stop offset="100%" stopColor="rgba(139, 92, 246, 0)" /></linearGradient></defs>{(() => { const expenses = trendData.map(d => d.expense); const max = Math.max(...expenses, 1); const points = expenses.map((v, i) => `${(i / Math.max(expenses.length - 1, 1)) * 500},${100 - (v / max) * 80}`); const pathD = 'M ' + points.join(' L '); return (<><path className="chart-area" d={pathD + ' L 500,100 L 0,100 Z'} /><path className="chart-line" d={pathD} /></>); })()}</svg></div>
           <div className="chart-stats"><div className="chart-stat"><span className="chart-stat-label">This Month</span><span className="chart-stat-value">{formatCurrency(monthlyData[5]?.expense || 0)}</span></div><div className="chart-stat"><span className="chart-stat-label">Last Month</span><span className="chart-stat-value">{formatCurrency(monthlyData[4]?.expense || 0)}</span></div><div className="chart-stat"><span className="chart-stat-label">6 Mo Avg</span><span className="chart-stat-value">{formatCurrency(monthlyData.reduce((s, d) => s + d.expense, 0) / 6)}</span></div><div className="chart-stat"><span className="chart-stat-label">Cycle Start</span><span className="chart-stat-value">{formatDate(cycleStart)}</span></div></div>
         </div>
         <div className="panel snapshot-panel">
@@ -709,7 +727,7 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
       <div className="bottom-grid">
         <div className="panel analytics-panel">
           <div className="panel-header"><span className="panel-title">Cash Flow Analytics</span></div>
-          <div className="chart-container"><div className="bar-chart">{monthlyData.map((d, i) => { const max = Math.max(...monthlyData.flatMap(m => [m.income, m.expense]), 1); return (<div key={i} className="bar-item"><div className="bar income" style={{ height: `${(d.income / max) * 180}px` }}></div><div className="bar expense" style={{ height: `${(d.expense / max) * 180}px` }}></div><span className="bar-label">{d.month}</span></div>); })}</div></div>
+          <div className="chart-container"><div className="bar-chart">{trendData.map((d, i) => { const max = Math.max(...trendData.flatMap(m => [m.income, m.expense]), 1); return (<div key={i} className="bar-item"><div className="bar income" style={{ height: `${(d.income / max) * 180}px` }}></div><div className="bar expense" style={{ height: `${(d.expense / max) * 180}px` }}></div><span className="bar-label">{d.month}</span></div>); })}</div></div>
           <div className="chart-legend"><div className="legend-item"><span className="legend-dot income"></span><span>Income</span></div><div className="legend-item"><span className="legend-dot expense"></span><span>Expenses</span></div></div>
         </div>
         <div className="panel watchlist-panel">
