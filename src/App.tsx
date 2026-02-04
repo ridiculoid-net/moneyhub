@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import './styles.css';
-import { supabase } from './supabaseClient';
+import { useAuth } from './auth';
 import profileDefault from './assets/profile-default.svg';
 
 // ============================================
@@ -161,7 +161,17 @@ const defaultEntries: Entry[] = [];
 
 const slugify = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 const getCycleIntervalDays = (freq: Settings['payFrequency']): number => (freq === 'weekly' ? 7 : freq === 'biweekly' ? 14 : 30);
-const toDateKey = (d: Date): string => d.toISOString().split('T')[0];
+const toDateKey = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const parseDateKey = (value: string): Date => {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return new Date(value);
+  return new Date(year, month - 1, day);
+};
 const addDays = (d: Date, days: number): Date => { const nd = new Date(d); nd.setDate(nd.getDate() + days); return nd; };
 const typeOrder: BudgetType[] = ['savings', 'fixed', 'core', 'rollover', 'bonus', 'buffer'];
 const defaultPriorityForType = (type: BudgetType): number => ({ savings: 10, fixed: 20, core: 30, rollover: 40, bonus: 50, buffer: 60 }[type]);
@@ -268,7 +278,7 @@ const buildCycles = (settings: Settings): BudgetCycle[] => {
   if (!settings.firstPayDate) return [];
   const interval = getCycleIntervalDays(settings.payFrequency);
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  let cursor = new Date(settings.firstPayDate); cursor.setHours(0, 0, 0, 0);
+  let cursor = parseDateKey(settings.firstPayDate); cursor.setHours(0, 0, 0, 0);
   const cycles: BudgetCycle[] = [];
   if (cursor > today) {
     const endDate = addDays(cursor, interval - 1);
@@ -355,32 +365,38 @@ const computeCurrentCycleData = (settings: Settings, budgets: Budget[], entries:
 
 const generateId = (): string => Date.now().toString(36) + Math.random().toString(36).substr(2);
 const formatCurrency = (v: number): string => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v);
-const formatDate = (d: string): string => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '--';
-const formatDateLong = (d: string): string => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '--';
-const getDaysUntil = (d: string): number => { if (!d) return 0; const t = new Date(); t.setHours(0,0,0,0); return Math.ceil((new Date(d).getTime() - t.getTime()) / 86400000); };
+const formatDate = (d: string): string => d ? parseDateKey(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '--';
+const formatDateLong = (d: string): string => d ? parseDateKey(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '--';
+const getDaysUntil = (d: string): number => {
+  if (!d) return 0;
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const target = parseDateKey(d);
+  const targetMidnight = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  return Math.ceil((targetMidnight.getTime() - t.getTime()) / 86400000);
+};
 const getPercentChange = (c: number, p: number): number => p === 0 ? 0 : ((c - p) / p) * 100;
 
 function getNextPayday(firstPayDate: string, freq: 'weekly' | 'biweekly' | 'monthly'): string {
   if (!firstPayDate) return '';
   const today = new Date(); today.setHours(0,0,0,0);
-  let payday = new Date(firstPayDate); payday.setHours(0,0,0,0);
+  let payday = parseDateKey(firstPayDate); payday.setHours(0,0,0,0);
   const interval = freq === 'weekly' ? 7 : freq === 'biweekly' ? 14 : 30;
   while (payday <= today) payday.setDate(payday.getDate() + interval);
-  return payday.toISOString().split('T')[0];
+  return toDateKey(payday);
 }
 
 function getCurrentCycleStart(firstPayDate: string, freq: 'weekly' | 'biweekly' | 'monthly'): string {
-  if (!firstPayDate) return new Date().toISOString().split('T')[0];
+  if (!firstPayDate) return toDateKey(new Date());
   const today = new Date(); today.setHours(0,0,0,0);
-  let cycleStart = new Date(firstPayDate); cycleStart.setHours(0,0,0,0);
+  let cycleStart = parseDateKey(firstPayDate); cycleStart.setHours(0,0,0,0);
   const interval = freq === 'weekly' ? 7 : freq === 'biweekly' ? 14 : 30;
   while (cycleStart.getTime() + interval * 86400000 <= today.getTime()) cycleStart.setDate(cycleStart.getDate() + interval);
-  return cycleStart.toISOString().split('T')[0];
+  return toDateKey(cycleStart);
 }
 
 function getMonthStart(): string {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  return toDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
 }
 
 function getYearStart(): string {
@@ -434,6 +450,13 @@ const saveState = (state: AppState): void => { try { localStorage.setItem(STORAG
 // ============================================
 
 function Sidebar({ activeNav, setActiveNav }: { activeNav: string; setActiveNav: (n: string) => void }) {
+  const { user, authEnabled, signOut } = useAuth();
+  const canSignOut = authEnabled && Boolean(user);
+  const logoutTitle = !authEnabled
+    ? 'Google login is not configured.'
+    : user
+      ? `Sign out${user.email ? ` ${user.email}` : ''}`
+      : 'Sign in to enable logout.';
   const items = [{ id: 'dashboard', label: 'Dashboard', icon: Icons.Dashboard }, { id: 'holdings', label: 'Holdings', icon: Icons.Portfolio }, { id: 'entries', label: 'Entries', icon: Icons.Entries }, { id: 'budgets', label: 'Budgets', icon: Icons.Budgets }, { id: 'settings', label: 'Settings', icon: Icons.Settings }];
   return (
     <aside className="sidebar">
@@ -441,37 +464,16 @@ function Sidebar({ activeNav, setActiveNav }: { activeNav: string; setActiveNav:
       <div className="sidebar-section-label">User Panel</div>
       <nav className="sidebar-nav">{items.map(i => (<button key={i.id} className={`nav-item ${activeNav === i.id ? 'active' : ''}`} onClick={() => setActiveNav(i.id)}><i.icon /><span>{i.label}</span></button>))}</nav>
       <div className="sidebar-footer"><div className="sidebar-quote"><div className="quote-icon"><Icons.Lightbulb /></div><div className="quote-title">Biweekly Model</div><div className="quote-text">Budget resets every payday. Stay on track with envelope budgeting.</div></div></div>
-      <button className="sidebar-logout"><Icons.Logout /><span>Logout</span></button>
+      <button className="sidebar-logout" onClick={canSignOut ? signOut : undefined} disabled={!canSignOut} title={logoutTitle}>
+        <Icons.Logout />
+        <span>Logout</span>
+      </button>
     </aside>
   );
 }
 
 function Topbar({ userName, pageTitle }: { userName: string; pageTitle: string }) {
-  const [authUser, setAuthUser] = useState<{ email?: string } | null>(null);
-  const authEnabled = Boolean(supabase);
-
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      setAuthUser(data.session?.user || null);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthUser(session?.user || null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const signInWithGoogle = async () => {
-    if (!supabase) return;
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin },
-    });
-  };
-  const signOut = async () => {
-    if (!supabase) return;
-    await supabase.auth.signOut();
-  };
+  const { user: authUser, authEnabled, signInWithGoogle, signOut } = useAuth();
   const displayName = userName?.trim() || 'there';
 
   return (
@@ -571,7 +573,7 @@ function DashboardPage({ state, setState, onGoToSettings }: { state: AppState; s
     const now = new Date();
     for (let i = 5; i >= 0; i--) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthStr = date.toISOString().slice(0, 7);
+      const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const monthName = date.toLocaleDateString('en-US', { month: 'short' });
       const monthEntries = state.entries.filter(e => e.date.startsWith(monthStr));
       months.push({
@@ -749,7 +751,7 @@ function EntryForm({ budgets, onSubmit, onCancel, initialData }: { budgets: Budg
   const [amount, setAmount] = useState(initialData?.amount?.toString() || '');
   const [description, setDescription] = useState(initialData?.description || '');
   const [category, setCategory] = useState(initialData?.category || budgets[0]?.category || '');
-  const [date, setDate] = useState(initialData?.date || new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(initialData?.date || toDateKey(new Date()));
   const selectedBudget = budgets.find(b => b.category === category);
   const selectedBadge = selectedBudget ? getTypeBadgeLabel(selectedBudget.type) : '';
   const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); if (!amount || !description) return; onSubmit({ type, amount: parseFloat(amount), description, category: type === 'income' ? 'Income' : category, date }); };
@@ -1025,7 +1027,9 @@ function EntriesPage({ state, setState }: { state: AppState; setState: (s: AppSt
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const filtered = state.entries.filter(e => filter === 'all' || e.type === filter).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const filtered = state.entries
+    .filter(e => filter === 'all' || e.type === filter)
+    .sort((a, b) => parseDateKey(b.date).getTime() - parseDateKey(a.date).getTime());
   const handleAdd = (entry: Omit<Entry, 'id'>) => {
     const entryWithId = { ...entry, id: generateId() };
     const delta = getSavingsAmount(entryWithId, state.budgets);
@@ -1097,6 +1101,22 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
   const cycleEntries = state.entries.filter(e => e.type === 'expense' && e.date >= cycleStart && (!cycleEnd || e.date <= cycleEnd));
   const totalAllocated = state.budgets.reduce((s, b) => s + (statesByBudgetId.get(b.id)?.fundedAmount || 0), 0);
   const totalSpent = cycleEntries.reduce((s, e) => s + e.amount, 0);
+  const totalBudgeted = state.budgets.filter(b => b.type !== 'buffer').reduce((s, b) => s + (b.allocated || 0), 0);
+  const paycheckAmount = state.settings.payAmount || 0;
+  const budgetGap = paycheckAmount - totalBudgeted;
+  const budgetGapLabel = paycheckAmount > 0
+    ? budgetGap >= 0
+      ? `Unassigned ${formatCurrency(budgetGap)}`
+      : `Over by ${formatCurrency(Math.abs(budgetGap))}`
+    : 'Set paycheck amount to compare';
+  const budgetGapClass = paycheckAmount > 0 ? (budgetGap >= 0 ? 'positive' : 'negative') : '';
+  const overBudgetCount = state.budgets.reduce((count, b) => {
+    const cycleState = statesByBudgetId.get(b.id);
+    if (!cycleState) return count;
+    return cycleState.spentAmount > cycleState.availableStart && cycleState.availableStart > 0 ? count + 1 : count;
+  }, 0);
+  const notSetCount = state.budgets.filter(b => b.allocated === 0 && b.type !== 'buffer').length;
+  const rolloverCount = state.budgets.filter(b => b.rollover).length;
   const handleSave = (b: Budget) => {
     const nextBudget = normalizeBudget(b);
     const ns = {
@@ -1119,7 +1139,51 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
         </div>
         <button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Category</span></button>
       </div>
-      <div className="summary-cards"><div className="summary-card"><div className="summary-label">Total Funded (Cycle)</div><div className="summary-value">{formatCurrency(totalAllocated)}</div></div><div className="summary-card"><div className="summary-label">Total Spent (Cycle)</div><div className="summary-value">{formatCurrency(totalSpent)}</div></div><div className="summary-card"><div className="summary-label">Remaining</div><div className={`summary-value ${totalAllocated - totalSpent < 0 ? 'danger' : ''}`}>{formatCurrency(totalAllocated - totalSpent)}</div></div></div>
+      <div className="summary-cards">
+        <div className="summary-card">
+          <div className="summary-label">Budgeted (Cycle Cap)</div>
+          <div className={`summary-value ${paycheckAmount > 0 && budgetGap < 0 ? 'danger' : ''}`}>{formatCurrency(totalBudgeted)}</div>
+          <div className={`summary-change ${budgetGapClass}`}>{budgetGapLabel}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Total Funded (Cycle)</div>
+          <div className="summary-value">{formatCurrency(totalAllocated)}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Total Spent (Cycle)</div>
+          <div className="summary-value">{formatCurrency(totalSpent)}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Remaining</div>
+          <div className={`summary-value ${totalAllocated - totalSpent < 0 ? 'danger' : ''}`}>{formatCurrency(totalAllocated - totalSpent)}</div>
+        </div>
+      </div>
+      <div className="budget-insights">
+        <div className="budget-meter">
+          <div className="budget-meter-header">
+            <h4>Budgeted vs Paycheck</h4>
+            <span className={`budget-meter-value ${paycheckAmount > 0 && budgetGap < 0 ? 'danger' : ''}`}>
+              {paycheckAmount > 0 ? `${formatCurrency(totalBudgeted)} / ${formatCurrency(paycheckAmount)}` : 'Set paycheck amount'}
+            </span>
+          </div>
+          <div className="budget-meter-bar">
+            <div
+              className={`budget-meter-fill ${paycheckAmount > 0 && budgetGap < 0 ? 'over' : ''}`}
+              style={{ width: paycheckAmount > 0 ? `${Math.min((totalBudgeted / paycheckAmount) * 100, 100)}%` : '0%' }}
+            ></div>
+          </div>
+          <div className="budget-meter-footer">
+            <span>{budgetGapLabel}</span>
+            <span>{notSetCount} not set</span>
+          </div>
+        </div>
+        <div className="budget-stats">
+          <div className="budget-stat"><span>Categories</span><strong>{state.budgets.length}</strong></div>
+          <div className="budget-stat"><span>Rollover</span><strong>{rolloverCount}</strong></div>
+          <div className="budget-stat"><span>Over</span><strong>{overBudgetCount}</strong></div>
+          <div className="budget-stat"><span>Protected</span><strong>{state.budgets.filter(b => b.protected).length}</strong></div>
+        </div>
+      </div>
       <div className="budgets-grid">{state.budgets.map(b => { 
         const cycleState = statesByBudgetId.get(b.id);
         const funded = cycleState?.fundedAmount || 0;
@@ -1216,26 +1280,14 @@ function BudgetForm({ budget, onSubmit, onCancel }: { budget?: Budget; onSubmit:
 function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppState) => void }) {
   const [settings, setLocal] = useState(state.settings);
   const [saved, setSaved] = useState(false);
-  const [authUser, setAuthUser] = useState<{ email?: string } | null>(null);
-  const authEnabled = Boolean(supabase);
-
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      setAuthUser(data.session?.user || null);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthUser(session?.user || null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+  const { user: authUser, authEnabled, loading: authLoading, signInWithGoogle, signOut } = useAuth();
   const exportData = () => {
     const payload = JSON.stringify(state, null, 2);
     const blob = new Blob([payload], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `moneyhub-backup-${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `moneyhub-backup-${toDateKey(new Date())}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -1266,17 +1318,6 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
     };
     reader.readAsText(file);
     event.target.value = '';
-  };
-  const signInWithGoogle = async () => {
-    if (!supabase) return;
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin },
-    });
-  };
-  const signOut = async () => {
-    if (!supabase) return;
-    await supabase.auth.signOut();
   };
   const handleSave = () => { const ns = { ...state, settings }; setState(ns); saveState(ns); setSaved(true); setTimeout(() => setSaved(false), 2000); };
   const handleReset = () => { if (confirm('Reset all data? This cannot be undone.')) { const ns = { entries: defaultEntries, budgets: defaultBudgets, holdings: defaultHoldings, bills: defaultBills, settings: defaultSettings }; setState(ns); saveState(ns); setLocal(defaultSettings); } };
@@ -1317,7 +1358,9 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
           <h3>Sign In</h3>
           <p className="settings-description">Optional Google login. Use this to link your data to a single identity.</p>
           {!authEnabled ? (
-            <p className="settings-description">Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable Google sign-in.</p>
+            <p className="settings-description">Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (optional VITE_SUPABASE_REDIRECT_URL) to enable Google sign-in.</p>
+          ) : authLoading ? (
+            <p className="settings-description">Checking sign-in status...</p>
           ) : authUser ? (
             <div className="settings-auth-row">
               <div>

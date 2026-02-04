@@ -275,6 +275,18 @@ body {
   color: var(--accent-red);
 }
 
+.sidebar-logout:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.sidebar-logout:disabled:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
+
 /* ============================================
    TOPBAR
    ============================================ */
@@ -2227,6 +2239,16 @@ body {
   .holdings-grid {
     grid-template-columns: 1fr;
   }
+
+  .budget-insights {
+    grid-template-columns: 1fr;
+  }
+
+  .budget-meter-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
 }
 
 @media (max-width: 600px) {
@@ -2668,6 +2690,97 @@ body {
 
 .summary-change.negative {
   color: #ef4444;
+}
+
+/* Budget Insights */
+.budget-insights {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.budget-meter,
+.budget-stats {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 1.25rem;
+  border: 1px solid var(--border-primary);
+}
+
+.budget-meter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.budget-meter-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.budget-meter-value {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.budget-meter-value.danger {
+  color: #ef4444;
+}
+
+.budget-meter-bar {
+  height: 10px;
+  background: var(--bg-elevated);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.budget-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent-green);
+  transition: width 0.3s ease;
+}
+
+.budget-meter-fill.over {
+  background: #ef4444;
+}
+
+.budget-meter-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.6rem;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.budget-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.budget-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  font-size: 0.8rem;
+}
+
+.budget-stat span {
+  color: var(--text-tertiary);
+}
+
+.budget-stat strong {
+  font-size: 0.95rem;
+  color: var(--text-primary);
 }
 
 /* Color Picker */
