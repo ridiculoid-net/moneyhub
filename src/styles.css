@@ -1626,9 +1626,27 @@ body {
   margin-bottom: 4px;
 }
 
-.entry-details span {
+.entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.entry-date {
   font-size: 13px;
   color: var(--text-muted);
+}
+
+.category-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .entry-amount {
@@ -1644,6 +1662,75 @@ body {
 .entry-actions {
   display: flex;
   gap: 8px;
+}
+
+.entries-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 8px;
+}
+
+.entries-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  min-width: min(420px, 100%);
+  flex: 1;
+}
+
+.entries-search svg {
+  width: 16px;
+  height: 16px;
+}
+
+.entries-search input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  width: 100%;
+}
+
+.btn-clear-filters {
+  height: 36px;
+}
+
+.category-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 20px;
+}
+
+.category-pill-filter {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.category-pill-filter:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.category-pill-filter.active {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
 /* ============================================
@@ -2282,6 +2369,14 @@ body {
   
   .summary-card.large {
     grid-column: span 1;
+  }
+
+  .entries-toolbar {
+    align-items: stretch;
+  }
+
+  .btn-clear-filters {
+    width: 100%;
   }
 }
 

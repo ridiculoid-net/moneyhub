@@ -375,6 +375,24 @@ const getDaysUntil = (d: string): number => {
   return Math.ceil((targetMidnight.getTime() - t.getTime()) / 86400000);
 };
 const getPercentChange = (c: number, p: number): number => p === 0 ? 0 : ((c - p) / p) * 100;
+const defaultTagColor = '#94a3b8';
+const hexToRgba = (hex: string, alpha: number): string => {
+  const normalized = hex.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    return `rgba(148, 163, 184, ${alpha})`;
+  }
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+const getCategoryColor = (category: string, budgets: Budget[]): string =>
+  budgets.find(b => b.category === category)?.color || defaultTagColor;
+const getPillStyle = (color: string, active = false) => ({
+  backgroundColor: hexToRgba(color, active ? 0.28 : 0.14),
+  borderColor: hexToRgba(color, active ? 0.6 : 0.35),
+  color,
+});
 
 function getNextPayday(firstPayDate: string, freq: 'weekly' | 'biweekly' | 'monthly'): string {
   if (!firstPayDate) return '';
@@ -1025,11 +1043,36 @@ function HoldingForm({ holding, onSubmit, onCancel }: { holding?: Holding; onSub
 
 function EntriesPage({ state, setState }: { state: AppState; setState: (s: AppState) => void }) {
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [query, setQuery] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    state.budgets.forEach(b => set.add(b.category));
+    state.entries.forEach(e => set.add(e.category));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [state.budgets, state.entries]);
+  const normalizedQuery = query.trim().toLowerCase();
+  const hasActiveFilters = filter !== 'all' || selectedCategories.length > 0 || normalizedQuery.length > 0;
   const filtered = state.entries
-    .filter(e => filter === 'all' || e.type === filter)
+    .filter(e => {
+      const matchesType = filter === 'all' || e.type === filter;
+      const matchesCategory = selectedCategories.length === 0 || selectedCategories.includes(e.category);
+      const matchesQuery = !normalizedQuery
+        || e.description.toLowerCase().includes(normalizedQuery)
+        || e.category.toLowerCase().includes(normalizedQuery);
+      return matchesType && matchesCategory && matchesQuery;
+    })
     .sort((a, b) => parseDateKey(b.date).getTime() - parseDateKey(a.date).getTime());
+  const toggleCategory = (category: string) => {
+    setSelectedCategories(prev => (prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]));
+  };
+  const clearFilters = () => {
+    setFilter('all');
+    setSelectedCategories([]);
+    setQuery('');
+  };
   const handleAdd = (entry: Omit<Entry, 'id'>) => {
     const entryWithId = { ...entry, id: generateId() };
     const delta = getSavingsAmount(entryWithId, state.budgets);
@@ -1072,15 +1115,70 @@ function EntriesPage({ state, setState }: { state: AppState; setState: (s: AppSt
     <div className="page-content">
       <div className="page-header"><div><h1>Entries</h1><p className="page-subtitle">View and manage your transactions</p></div><button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Entry</span></button></div>
       <div className="filter-tabs"><button className={`filter-tab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>All</button><button className={`filter-tab ${filter === 'expense' ? 'active' : ''}`} onClick={() => setFilter('expense')}>Expenses</button><button className={`filter-tab ${filter === 'income' ? 'active' : ''}`} onClick={() => setFilter('income')}>Income</button></div>
+      <div className="entries-toolbar">
+        <label className="entries-search">
+          <Icons.Search />
+          <input
+            type="search"
+            placeholder="Search description or category"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+        </label>
+        {hasActiveFilters && (
+          <button className="btn-secondary btn-clear-filters" onClick={clearFilters}>Clear filters</button>
+        )}
+      </div>
+      <div className="category-filters">
+        <button className={`category-pill-filter ${selectedCategories.length === 0 ? 'active' : ''}`} onClick={() => setSelectedCategories([])}>All categories</button>
+        {categories.map(cat => {
+          const color = getCategoryColor(cat, state.budgets);
+          return (
+            <button
+              key={cat}
+              className={`category-pill-filter ${selectedCategories.includes(cat) ? 'active' : ''}`}
+              style={getPillStyle(color, selectedCategories.includes(cat))}
+              onClick={() => toggleCategory(cat)}
+            >
+              {cat}
+            </button>
+          );
+        })}
+      </div>
       {filtered.length === 0 ? (
-        <div className="empty-state">
-          <Icons.Entries />
-          <h3>No entries yet</h3>
-          <p>Start tracking your income and expenses by adding your first entry.</p>
-          <button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Entry</span></button>
-        </div>
+        state.entries.length === 0 ? (
+          <div className="empty-state">
+            <Icons.Entries />
+            <h3>No entries yet</h3>
+            <p>Start tracking your income and expenses by adding your first entry.</p>
+            <button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Entry</span></button>
+          </div>
+        ) : (
+          <div className="empty-state">
+            <Icons.Search />
+            <h3>No entries match your filters</h3>
+            <p>Try clearing filters or adjusting your search.</p>
+            <button className="btn-secondary" onClick={clearFilters}>Clear filters</button>
+          </div>
+        )
       ) : (
-        <div className="entries-list">{filtered.map(e => (<div key={e.id} className="entry-item"><div className={`entry-icon ${e.type}`}>{e.type === 'income' ? <Icons.TrendingUp /> : <Icons.TrendingDown />}</div><div className="entry-details"><h4>{e.description}</h4><span>{formatDateLong(e.date)} • {e.category}</span></div><div className="entry-amount-col"><div className={`entry-amount ${e.type}`}>{e.type === 'income' ? '+' : '-'}{formatCurrency(e.amount)}</div></div><div className="entry-actions"><button className="icon-btn" onClick={() => setEditingId(e.id)}><Icons.Edit /></button><button className="icon-btn danger" onClick={() => handleDelete(e.id)}><Icons.Trash /></button></div></div>))}</div>
+        <div className="entries-list">{filtered.map(e => {
+          const color = getCategoryColor(e.category, state.budgets);
+          return (
+            <div key={e.id} className="entry-item">
+              <div className={`entry-icon ${e.type}`}>{e.type === 'income' ? <Icons.TrendingUp /> : <Icons.TrendingDown />}</div>
+              <div className="entry-details">
+                <h4>{e.description}</h4>
+                <div className="entry-meta">
+                  <span className="entry-date">{formatDateLong(e.date)}</span>
+                  <span className="category-pill" style={getPillStyle(color)}>{e.category}</span>
+                </div>
+              </div>
+              <div className="entry-amount-col"><div className={`entry-amount ${e.type}`}>{e.type === 'income' ? '+' : '-'}{formatCurrency(e.amount)}</div></div>
+              <div className="entry-actions"><button className="icon-btn" onClick={() => setEditingId(e.id)}><Icons.Edit /></button><button className="icon-btn danger" onClick={() => handleDelete(e.id)}><Icons.Trash /></button></div>
+            </div>
+          );
+        })}</div>
       )}
       <Modal isOpen={showAdd || editingId !== null} onClose={() => { setShowAdd(false); setEditingId(null); }} title={editingId ? 'Edit Entry' : 'Add Entry'}>{editingId ? <EntryForm budgets={state.budgets} onSubmit={handleEdit} onCancel={() => setEditingId(null)} initialData={state.entries.find(e => e.id === editingId)} /> : <EntryForm budgets={state.budgets} onSubmit={handleAdd} onCancel={() => setShowAdd(false)} />}</Modal>
     </div>
