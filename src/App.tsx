@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
+import { NavLink, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import './styles.css';
 import { useAuth } from './auth';
-import profileDefault from './assets/profile-default.svg';
 
 // ============================================
 // TYPES
@@ -467,7 +467,7 @@ const saveState = (state: AppState): void => { try { localStorage.setItem(STORAG
 // COMPONENTS
 // ============================================
 
-function Sidebar({ activeNav, setActiveNav }: { activeNav: string; setActiveNav: (n: string) => void }) {
+function Sidebar() {
   const { user, authEnabled, signOut } = useAuth();
   const canSignOut = authEnabled && Boolean(user);
   const logoutTitle = !authEnabled
@@ -475,12 +475,30 @@ function Sidebar({ activeNav, setActiveNav }: { activeNav: string; setActiveNav:
     : user
       ? `Sign out${user.email ? ` ${user.email}` : ''}`
       : 'Sign in to enable logout.';
-  const items = [{ id: 'dashboard', label: 'Dashboard', icon: Icons.Dashboard }, { id: 'holdings', label: 'Holdings', icon: Icons.Portfolio }, { id: 'entries', label: 'Entries', icon: Icons.Entries }, { id: 'budgets', label: 'Budgets', icon: Icons.Budgets }, { id: 'settings', label: 'Settings', icon: Icons.Settings }];
+  const items = [
+    { path: '/', label: 'Dashboard', icon: Icons.Dashboard },
+    { path: '/holdings', label: 'Holdings', icon: Icons.Portfolio },
+    { path: '/entries', label: 'Entries', icon: Icons.Entries },
+    { path: '/budgets', label: 'Budgets', icon: Icons.Budgets },
+    { path: '/settings', label: 'Settings', icon: Icons.Settings },
+  ];
   return (
     <aside className="sidebar">
       <div className="sidebar-brand"><h1>MoneyHub</h1></div>
       <div className="sidebar-section-label">User Panel</div>
-      <nav className="sidebar-nav">{items.map(i => (<button key={i.id} className={`nav-item ${activeNav === i.id ? 'active' : ''}`} onClick={() => setActiveNav(i.id)}><i.icon /><span>{i.label}</span></button>))}</nav>
+      <nav className="sidebar-nav">
+        {items.map(i => (
+          <NavLink
+            key={i.path}
+            to={i.path}
+            end={i.path === '/'}
+            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+          >
+            <i.icon />
+            <span>{i.label}</span>
+          </NavLink>
+        ))}
+      </nav>
       <div className="sidebar-footer"><div className="sidebar-quote"><div className="quote-icon"><Icons.Lightbulb /></div><div className="quote-title">Biweekly Model</div><div className="quote-text">Budget resets every payday. Stay on track with envelope budgeting.</div></div></div>
       <button className="sidebar-logout" onClick={canSignOut ? signOut : undefined} disabled={!canSignOut} title={logoutTitle}>
         <Icons.Logout />
@@ -493,6 +511,8 @@ function Sidebar({ activeNav, setActiveNav }: { activeNav: string; setActiveNav:
 function Topbar({ userName, pageTitle }: { userName: string; pageTitle: string }) {
   const { user: authUser, authEnabled, signInWithGoogle, signOut } = useAuth();
   const displayName = userName?.trim() || 'there';
+  const avatarUrl = (authUser?.user_metadata as { avatar_url?: string; picture?: string } | undefined)?.avatar_url
+    || (authUser?.user_metadata as { avatar_url?: string; picture?: string } | undefined)?.picture;
 
   return (
     <header className="topbar">
@@ -513,7 +533,9 @@ function Topbar({ userName, pageTitle }: { userName: string; pageTitle: string }
           )
         )}
         <button className="notification-btn"><Icons.Bell /><span className="notification-badge"></span></button>
-        <div className="profile-chip"><img src={profileDefault} alt="Profile" /></div>
+        {authUser && avatarUrl && (
+          <div className="profile-chip"><img src={avatarUrl} alt="Profile" referrerPolicy="no-referrer" /></div>
+        )}
       </div>
     </header>
   );
@@ -1531,21 +1553,32 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
 // ============================================
 
 function App() {
-  const [activeNav, setActiveNav] = useState('dashboard');
+  const location = useLocation();
+  const navigate = useNavigate();
   const [state, setState] = useState<AppState>(loadState);
   useEffect(() => { saveState(state); }, [state]);
-  const pageTitles: { [k: string]: string } = { dashboard: 'Dashboard', holdings: 'Holdings', entries: 'Entries', budgets: 'Budgets', settings: 'Settings' };
-  const goToSettings = () => setActiveNav('settings');
+  const pageTitles: Record<string, string> = {
+    '/': 'Dashboard',
+    '/holdings': 'Holdings',
+    '/entries': 'Entries',
+    '/budgets': 'Budgets',
+    '/settings': 'Settings',
+  };
+  const pageTitle = pageTitles[location.pathname] || 'Dashboard';
+  const goToSettings = () => navigate('/settings');
   return (
     <div className="app-container">
-      <Sidebar activeNav={activeNav} setActiveNav={setActiveNav} />
+      <Sidebar />
       <main className="main-content">
-        <Topbar userName={state.settings.userName} pageTitle={pageTitles[activeNav]} />
-        {activeNav === 'dashboard' && <DashboardPage state={state} setState={setState} onGoToSettings={goToSettings} />}
-        {activeNav === 'holdings' && <HoldingsPage state={state} setState={setState} />}
-        {activeNav === 'entries' && <EntriesPage state={state} setState={setState} />}
-        {activeNav === 'budgets' && <BudgetsPage state={state} setState={setState} />}
-        {activeNav === 'settings' && <SettingsPage state={state} setState={setState} />}
+        <Topbar userName={state.settings.userName} pageTitle={pageTitle} />
+        <Routes>
+          <Route path="/" element={<DashboardPage state={state} setState={setState} onGoToSettings={goToSettings} />} />
+          <Route path="/holdings" element={<HoldingsPage state={state} setState={setState} />} />
+          <Route path="/entries" element={<EntriesPage state={state} setState={setState} />} />
+          <Route path="/budgets" element={<BudgetsPage state={state} setState={setState} />} />
+          <Route path="/settings" element={<SettingsPage state={state} setState={setState} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
     </div>
   );
