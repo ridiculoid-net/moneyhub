@@ -1112,7 +1112,7 @@ function EntriesPage({ state, setState }: { state: AppState; setState: (s: AppSt
     saveState(ns);
   };
   return (
-    <div className="page-content">
+    <div className="page-content budgets-page">
       <div className="page-header"><div><h1>Entries</h1><p className="page-subtitle">View and manage your transactions</p></div><button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Entry</span></button></div>
       <div className="filter-tabs"><button className={`filter-tab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>All</button><button className={`filter-tab ${filter === 'expense' ? 'active' : ''}`} onClick={() => setFilter('expense')}>Expenses</button><button className={`filter-tab ${filter === 'income' ? 'active' : ''}`} onClick={() => setFilter('income')}>Income</button></div>
       <div className="entries-toolbar">
