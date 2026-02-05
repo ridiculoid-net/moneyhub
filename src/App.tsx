@@ -59,6 +59,7 @@ interface Settings {
   bufferAmount: number;
   savingsGoal: number;
   finnhubApiKey: string;
+  theme: 'dark' | 'light';
 }
 
 interface AppState {
@@ -131,6 +132,7 @@ const defaultSettings: Settings = {
   bufferAmount: 0,
   savingsGoal: 0,
   finnhubApiKey: '',
+  theme: 'dark',
 };
 
 const defaultBudgets: Budget[] = [
@@ -1479,6 +1481,12 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
   };
   const handleSave = () => { const ns = { ...state, settings }; setState(ns); saveState(ns); setSaved(true); setTimeout(() => setSaved(false), 2000); };
   const handleReset = () => { if (confirm('Reset all data? This cannot be undone.')) { const ns = { entries: defaultEntries, budgets: defaultBudgets, holdings: defaultHoldings, bills: defaultBills, settings: defaultSettings }; setState(ns); saveState(ns); setLocal(defaultSettings); } };
+  const applyTheme = (theme: Settings['theme']) => {
+    setLocal(prev => ({ ...prev, theme }));
+    const ns = { ...state, settings: { ...state.settings, theme } };
+    setState(ns);
+    saveState(ns);
+  };
   return (
     <div className="page-content">
       <div className="page-header"><div><h1>Settings</h1><p className="page-subtitle">Configure your budget preferences</p></div></div>
@@ -1491,6 +1499,26 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
             <div className="form-group"><label>Pay Amount</label><input type="number" step="0.01" value={settings.payAmount || ''} onChange={e => setLocal({ ...settings, payAmount: parseFloat(e.target.value) || 0 })} placeholder="Enter your paycheck amount" /></div>
             <div className="form-group"><label>Pay Frequency</label><select value={settings.payFrequency} onChange={e => setLocal({ ...settings, payFrequency: e.target.value as any })}><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></div>
             <div className="form-group"><label>First Pay Date</label><input type="date" value={settings.firstPayDate} onChange={e => setLocal({ ...settings, firstPayDate: e.target.value })} /></div>
+          </div>
+        </div>
+        <div className="settings-section">
+          <h3>Appearance</h3>
+          <p className="settings-description">Switch between light and dark mode.</p>
+          <div className="settings-actions settings-actions-inline">
+            <button
+              className={`theme-toggle ${settings.theme === 'dark' ? 'active' : ''}`}
+              onClick={() => applyTheme('dark')}
+              type="button"
+            >
+              Dark
+            </button>
+            <button
+              className={`theme-toggle ${settings.theme === 'light' ? 'active' : ''}`}
+              onClick={() => applyTheme('light')}
+              type="button"
+            >
+              Light
+            </button>
           </div>
         </div>
         <div className="settings-section">
@@ -1557,6 +1585,9 @@ function App() {
   const navigate = useNavigate();
   const [state, setState] = useState<AppState>(loadState);
   useEffect(() => { saveState(state); }, [state]);
+  useEffect(() => {
+    document.documentElement.dataset.theme = state.settings.theme || 'dark';
+  }, [state.settings.theme]);
   const pageTitles: Record<string, string> = {
     '/': 'Dashboard',
     '/holdings': 'Holdings',
