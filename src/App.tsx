@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
 import './styles.css';
 import { useAuth } from './auth';
 import profileDefault from './assets/profile-default.svg';
@@ -1192,6 +1192,8 @@ function EntriesPage({ state, setState }: { state: AppState; setState: (s: AppSt
 function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppState) => void }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [sortBy, setSortBy] = useState<'priority' | 'category' | 'allocated' | 'spent' | 'remaining'>('priority');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const { currentCycle, statesByBudgetId } = useMemo(() => computeCurrentCycleData(state.settings, state.budgets, state.entries), [state.settings, state.budgets, state.entries]);
   const cycleStart = currentCycle?.startDate || getCurrentCycleStart(state.settings.firstPayDate, state.settings.payFrequency);
   const cycleEnd = currentCycle?.endDate || '';
@@ -1215,6 +1217,26 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
   }, 0);
   const notSetCount = state.budgets.filter(b => b.allocated === 0 && b.type !== 'buffer').length;
   const rolloverCount = state.budgets.filter(b => b.rollover).length;
+  const sortedBudgets = useMemo(() => {
+    const items = [...state.budgets];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    items.sort((a, b) => {
+      if (sortBy === 'category') return a.category.localeCompare(b.category) * dir;
+      if (sortBy === 'allocated') return ((a.allocated || 0) - (b.allocated || 0)) * dir;
+      if (sortBy === 'spent') {
+        const aSpent = statesByBudgetId.get(a.id)?.spentAmount || 0;
+        const bSpent = statesByBudgetId.get(b.id)?.spentAmount || 0;
+        return (aSpent - bSpent) * dir;
+      }
+      if (sortBy === 'remaining') {
+        const aRemain = statesByBudgetId.get(a.id)?.availableEnd || 0;
+        const bRemain = statesByBudgetId.get(b.id)?.availableEnd || 0;
+        return (aRemain - bRemain) * dir;
+      }
+      return (a.priority - b.priority) * dir;
+    });
+    return items;
+  }, [state.budgets, sortBy, sortDir, statesByBudgetId]);
   const handleSave = (b: Budget) => {
     const nextBudget = normalizeBudget(b);
     const ns = {
@@ -1236,6 +1258,21 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
           {cycleEnd && <p className="page-subtitle cycle-hint">Cycle ends in {daysUntilCycleEnd} days</p>}
         </div>
         <button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Category</span></button>
+      </div>
+      <div className="budget-tools">
+        <div className="budget-tools-label">Sort by</div>
+        <div className="budget-tools-controls">
+          <select className="budget-tools-select" value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}>
+            <option value="priority">Priority</option>
+            <option value="category">Category</option>
+            <option value="allocated">Allocated</option>
+            <option value="spent">Spent (cycle)</option>
+            <option value="remaining">Remaining</option>
+          </select>
+          <button className="btn-secondary btn-sort" onClick={() => setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')}>
+            {sortDir === 'asc' ? 'Asc' : 'Desc'}
+          </button>
+        </div>
       </div>
       <div className="summary-cards">
         <div className="summary-card">
@@ -1282,7 +1319,7 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
           <div className="budget-stat"><span>Protected</span><strong>{state.budgets.filter(b => b.protected).length}</strong></div>
         </div>
       </div>
-      <div className="budgets-grid">{state.budgets.map(b => { 
+      <div className="budgets-grid">{sortedBudgets.map(b => { 
         const cycleState = statesByBudgetId.get(b.id);
         const funded = cycleState?.fundedAmount || 0;
         const availableStart = cycleState?.availableStart || 0;
@@ -1318,6 +1355,7 @@ function BudgetsPage({ state, setState }: { state: AppState; setState: (s: AppSt
           <div
             key={b.id}
             className={`budget-item ${over ? 'over' : ''} ${notSet ? 'not-set' : ''}`}
+            style={{ '--budget-accent': b.color } as CSSProperties}
             onClick={() => { if (notSet) { setEditingId(b.id); setShowAdd(false); } }}
           >
             <div className="budget-item-header">
