@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, type CSSProperties } from 'react';
 import { NavLink, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import './styles.css';
 import { useAuth } from './auth';
+import { supabase } from './supabaseClient';
 
 // ============================================
 // TYPES
@@ -90,6 +91,73 @@ interface EnvelopeCycleState {
   availableEnd: number;
 }
 
+interface CycleBudgetAnalytics {
+  budgetId: string;
+  category: string;
+  type: BudgetType;
+  fundedAmount: number;
+  spentAmount: number;
+  availableStart: number;
+  availableEnd: number;
+  carryIn: number;
+  carryOut: number;
+  overspentBy: number;
+  utilization: number;
+  protected: boolean;
+}
+
+interface CycleAnalyticsReport {
+  cycle: BudgetCycle;
+  isCurrent: boolean;
+  planned: number;
+  availableStart: number;
+  spent: number;
+  leftover: number;
+  overspentAmount: number;
+  overspentCount: number;
+  protectedOverspentCount: number;
+  bufferStart: number;
+  bufferEnd: number;
+  bufferDrawdown: number;
+  bufferOverspendTransfer: number;
+  savingsContribution: number;
+  rolloverIn: number;
+  rolloverOut: number;
+  score: number;
+  wins: string[];
+  misses: string[];
+  adjustments: string[];
+  categories: CycleBudgetAnalytics[];
+}
+
+type RecommendationConfidence = 'high' | 'medium' | 'low';
+
+interface AllocationRecommendation {
+  budgetId: string;
+  category: string;
+  currentAllocated: number;
+  recommendedAllocated: number;
+  delta: number;
+  reason: string;
+  confidence: RecommendationConfidence;
+}
+
+interface CycleAnalyticsSummary {
+  averageScore: number;
+  bestCycleId: string | null;
+  worstCycleId: string | null;
+  overspendRate: number;
+  avgLeftoverRate: number;
+  savingsRate: number;
+}
+
+interface CycleHistoryAnalyticsData {
+  cycles: BudgetCycle[];
+  reports: CycleAnalyticsReport[];
+  summary: CycleAnalyticsSummary;
+  recommendations: AllocationRecommendation[];
+}
+
 // ============================================
 // ICONS
 // ============================================
@@ -99,6 +167,7 @@ const Icons = {
   Portfolio: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" /></svg>),
   Entries: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>),
   Budgets: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>),
+  Analytics: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="20" x2="20" y2="20" /><rect x="6" y="10" width="3" height="8" rx="1" /><rect x="11" y="6" width="3" height="12" rx="1" /><rect x="16" y="13" width="3" height="5" rx="1" /></svg>),
   Settings: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>),
   Search: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>),
   Bell: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>),
@@ -304,12 +373,22 @@ const findCycleIdForDate = (date: string, cycles: BudgetCycle[]): string | null 
   return null;
 };
 
-const computeCurrentCycleData = (settings: Settings, budgets: Budget[], entries: Entry[]) => {
+interface CycleStateComputation {
+  cycles: BudgetCycle[];
+  statesByCycleId: Map<string, EnvelopeCycleState[]>;
+  bufferOverspendTransferByCycle: Map<string, number>;
+}
+
+const clampNumber = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+const roundMoney = (value: number): number => Math.round(value * 100) / 100;
+const formatUsd = (value: number): string => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+
+const computeCycleStates = (settings: Settings, budgets: Budget[], entries: Entry[]): CycleStateComputation => {
   const cycles = buildCycles(settings);
   if (cycles.length === 0) {
-    return { currentCycle: null as BudgetCycle | null, statesByBudgetId: new Map<string, EnvelopeCycleState>(), states: [] as EnvelopeCycleState[] };
+    return { cycles, statesByCycleId: new Map<string, EnvelopeCycleState[]>(), bufferOverspendTransferByCycle: new Map<string, number>() };
   }
-  const currentCycle = cycles[cycles.length - 1];
+
   const budgetByCategory = new Map(budgets.map(b => [b.category, b]));
   const spendByCycleBudget = new Map<string, Map<string, number>>();
   entries.filter(e => e.type === 'expense').forEach(e => {
@@ -323,8 +402,12 @@ const computeCurrentCycleData = (settings: Settings, budgets: Budget[], entries:
   });
 
   const fundedByBudgetId = allocatePaycheck(budgets, settings.payAmount || 0);
+  const statesByCycleId = new Map<string, EnvelopeCycleState[]>();
+  const bufferOverspendTransferByCycle = new Map<string, number>();
+  const bufferBudget = budgets.find(b => b.type === 'buffer');
+  const budgetById = new Map(budgets.map(b => [b.id, b]));
   let prevStates = new Map<string, EnvelopeCycleState>();
-  let currentStates: EnvelopeCycleState[] = [];
+
   for (const cycle of cycles) {
     const spendMap = spendByCycleBudget.get(cycle.id) || new Map<string, number>();
     const states = budgets.map(b => {
@@ -337,32 +420,278 @@ const computeCurrentCycleData = (settings: Settings, budgets: Budget[], entries:
       return { cycleId: cycle.id, budgetId: b.id, fundedAmount, spentAmount, availableStart, availableEnd };
     });
 
-    const bufferBudget = budgets.find(b => b.type === 'buffer');
+    let overspendTransfer = 0;
     if (bufferBudget) {
       const bufferState = states.find(s => s.budgetId === bufferBudget.id);
       if (bufferState) {
-        let overageTotal = 0;
         states.forEach(state => {
           if (state.budgetId === bufferBudget.id) return;
-          const budget = budgets.find(b => b.id === state.budgetId);
+          const budget = budgetById.get(state.budgetId);
           if (!budget || budget.overspendPolicy !== 'to_buffer') return;
-          overageTotal += Math.max(0, state.spentAmount - state.availableStart);
+          overspendTransfer += Math.max(0, state.spentAmount - state.availableStart);
         });
-        if (overageTotal > 0) {
-          bufferState.spentAmount += overageTotal;
+        if (overspendTransfer > 0) {
+          bufferState.spentAmount += overspendTransfer;
           bufferState.availableEnd = Math.max(0, bufferState.availableStart - bufferState.spentAmount);
         }
       }
     }
 
-    if (cycle.id === currentCycle.id) {
-      currentStates = states;
-      break;
-    }
+    bufferOverspendTransferByCycle.set(cycle.id, overspendTransfer);
+    statesByCycleId.set(cycle.id, states);
     prevStates = new Map(states.map(s => [s.budgetId, s]));
   }
 
-  return { currentCycle, statesByBudgetId: new Map(currentStates.map(s => [s.budgetId, s])), states: currentStates };
+  return { cycles, statesByCycleId, bufferOverspendTransferByCycle };
+};
+
+const computeCycleScore = (metrics: {
+  planned: number;
+  overspentAmount: number;
+  overspentCount: number;
+  protectedOverspentCount: number;
+  bufferStart: number;
+  bufferDrawdown: number;
+  savingsContribution: number;
+  leftover: number;
+}): number => {
+  let score = 100;
+  const overspendRatio = metrics.planned > 0 ? metrics.overspentAmount / metrics.planned : 0;
+  const leftoverRatio = metrics.planned > 0 ? metrics.leftover / metrics.planned : 0;
+  const bufferDrawRatio = metrics.bufferStart > 0 ? metrics.bufferDrawdown / metrics.bufferStart : 0;
+
+  score -= Math.min(36, metrics.overspentCount * 9);
+  score -= Math.min(32, overspendRatio * 55);
+  score -= Math.min(18, metrics.protectedOverspentCount * 9);
+  score -= Math.min(14, bufferDrawRatio * 20);
+
+  if (metrics.savingsContribution > 0) score += 4;
+  if (leftoverRatio >= 0.08 && leftoverRatio <= 0.25) score += 4;
+  if (leftoverRatio > 0.35) score -= 6;
+
+  return Math.round(clampNumber(score, 0, 100));
+};
+
+const buildCycleRecommendations = (reports: CycleAnalyticsReport[], budgets: Budget[]): AllocationRecommendation[] => {
+  if (reports.length === 0) return [];
+  const completed = reports.filter(r => r.cycle.endDate < toDateKey(new Date()));
+  const source = (completed.length > 0 ? completed : reports).slice(-6);
+  if (source.length < 2) return [];
+
+  return budgets
+    .filter(b => b.type !== 'buffer')
+    .map(budget => {
+      const samples = source
+        .map(report => report.categories.find(c => c.budgetId === budget.id))
+        .filter(Boolean) as CycleBudgetAnalytics[];
+      if (samples.length < 2) return null;
+
+      const avgSpent = samples.reduce((sum, sample) => sum + sample.spentAmount, 0) / samples.length;
+      const overspentCycles = samples.filter(sample => sample.overspentBy > 0).length;
+      const underusedCycles = samples.filter(sample => sample.utilization < 0.55).length;
+      const fullUseCycles = samples.filter(sample => sample.utilization >= 0.95).length;
+      const currentAllocated = budget.allocated || 0;
+
+      let recommended = currentAllocated;
+      let reason = '';
+
+      if (budget.type === 'savings') {
+        if (avgSpent > currentAllocated * 1.05) {
+          recommended = roundMoney(avgSpent);
+          reason = `Savings contributions averaged ${formatUsd(avgSpent)} per cycle.`;
+        }
+      } else if (overspentCycles >= Math.ceil(samples.length / 2) || fullUseCycles >= Math.ceil(samples.length / 2)) {
+        recommended = Math.max(currentAllocated, roundMoney(avgSpent * 1.12));
+        reason = `Category pressure was high in ${Math.max(overspentCycles, fullUseCycles)} of ${samples.length} cycles.`;
+      } else if (!budget.protected && currentAllocated > 0 && underusedCycles >= Math.ceil(samples.length * 0.67)) {
+        recommended = roundMoney(Math.max(0, avgSpent * 1.05));
+        reason = `Usage stayed low in ${underusedCycles} of ${samples.length} cycles.`;
+      }
+
+      if (budget.protected && recommended < currentAllocated) {
+        recommended = currentAllocated;
+      }
+
+      const delta = roundMoney(recommended - currentAllocated);
+      if (!reason || Math.abs(delta) < 5) return null;
+      const confidence: RecommendationConfidence = samples.length >= 5 ? 'high' : samples.length >= 3 ? 'medium' : 'low';
+
+      return {
+        budgetId: budget.id,
+        category: budget.category,
+        currentAllocated,
+        recommendedAllocated: recommended,
+        delta,
+        reason,
+        confidence,
+      };
+    })
+    .filter((rec): rec is AllocationRecommendation => Boolean(rec))
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .slice(0, 8);
+};
+
+const computeCycleHistoryAnalytics = (settings: Settings, budgets: Budget[], entries: Entry[]): CycleHistoryAnalyticsData => {
+  const { cycles, statesByCycleId, bufferOverspendTransferByCycle } = computeCycleStates(settings, budgets, entries);
+  if (cycles.length === 0) {
+    return {
+      cycles: [],
+      reports: [],
+      summary: { averageScore: 0, bestCycleId: null, worstCycleId: null, overspendRate: 0, avgLeftoverRate: 0, savingsRate: 0 },
+      recommendations: [],
+    };
+  }
+
+  const budgetById = new Map(budgets.map(b => [b.id, b]));
+  const budgetByCategory = new Map(budgets.map(b => [b.category, b]));
+  const savingsByCycle = new Map<string, number>();
+  entries.filter(e => e.type === 'expense').forEach(entry => {
+    const cycleId = findCycleIdForDate(entry.date, cycles);
+    if (!cycleId) return;
+    const budget = budgetByCategory.get(entry.category);
+    if (!budget || budget.type !== 'savings') return;
+    savingsByCycle.set(cycleId, (savingsByCycle.get(cycleId) || 0) + entry.amount);
+  });
+
+  const reports = cycles.map((cycle, index) => {
+    const states = statesByCycleId.get(cycle.id) || [];
+    const categories = states.map(state => {
+      const budget = budgetById.get(state.budgetId);
+      const hasInitialBuffer = budget?.type === 'buffer' && index === 0 ? (settings.bufferAmount || 0) : 0;
+      const carryIn = Math.max(0, state.availableStart - state.fundedAmount - hasInitialBuffer);
+      const overspentBy = Math.max(0, state.spentAmount - state.availableStart);
+      const utilization = state.availableStart > 0 ? state.spentAmount / state.availableStart : (state.spentAmount > 0 ? 1 : 0);
+      return {
+        budgetId: state.budgetId,
+        category: budget?.category || 'Unknown',
+        type: budget?.type || 'core',
+        fundedAmount: state.fundedAmount,
+        spentAmount: state.spentAmount,
+        availableStart: state.availableStart,
+        availableEnd: state.availableEnd,
+        carryIn,
+        carryOut: state.availableEnd,
+        overspentBy,
+        utilization,
+        protected: Boolean(budget?.protected),
+      };
+    });
+
+    const planned = states.reduce((sum, state) => sum + state.fundedAmount, 0);
+    const availableStart = states.reduce((sum, state) => sum + state.availableStart, 0);
+    const spent = states.reduce((sum, state) => sum + state.spentAmount, 0);
+    const leftover = states.reduce((sum, state) => sum + state.availableEnd, 0);
+    const overspentAmount = categories.reduce((sum, category) => sum + category.overspentBy, 0);
+    const overspentCount = categories.filter(category => category.overspentBy > 0).length;
+    const protectedOverspentCount = categories.filter(category => category.protected && category.overspentBy > 0).length;
+    const bufferCategory = categories.find(category => category.type === 'buffer');
+    const bufferStart = bufferCategory?.availableStart || 0;
+    const bufferEnd = bufferCategory?.availableEnd || 0;
+    const bufferDrawdown = Math.max(0, bufferStart - bufferEnd);
+    const bufferOverspendTransfer = bufferOverspendTransferByCycle.get(cycle.id) || 0;
+    const savingsContribution = savingsByCycle.get(cycle.id) || 0;
+    const rolloverIn = categories.filter(category => category.type === 'rollover' || category.type === 'buffer').reduce((sum, category) => sum + category.carryIn, 0);
+    const rolloverOut = categories.filter(category => category.type === 'rollover' || category.type === 'buffer').reduce((sum, category) => sum + category.availableEnd, 0);
+    const score = computeCycleScore({
+      planned,
+      overspentAmount,
+      overspentCount,
+      protectedOverspentCount,
+      bufferStart,
+      bufferDrawdown,
+      savingsContribution,
+      leftover,
+    });
+
+    const wins: string[] = [];
+    if (overspentCount === 0) wins.push('Stayed within all funded category limits.');
+    if (protectedOverspentCount === 0) wins.push('Protected categories stayed on track.');
+    if (savingsContribution > 0) wins.push(`Saved ${formatUsd(savingsContribution)} in this cycle.`);
+    if (planned > 0 && leftover / planned >= 0.08 && leftover / planned <= 0.25) wins.push('Maintained a healthy leftover cushion.');
+
+    const misses: string[] = [];
+    if (overspentCount > 0) misses.push(`Overspent ${overspentCount} categories by ${formatUsd(overspentAmount)} total.`);
+    if (protectedOverspentCount > 0) misses.push(`${protectedOverspentCount} protected categories went over limit.`);
+    if (bufferDrawdown > 0) misses.push(`Buffer dropped by ${formatUsd(bufferDrawdown)}.`);
+    if (planned > 0 && leftover / planned > 0.35) misses.push('Large leftover indicates allocations may be too loose.');
+
+    const adjustments: string[] = [];
+    const topOverspent = [...categories].sort((a, b) => b.overspentBy - a.overspentBy).find(c => c.overspentBy > 0);
+    if (topOverspent) {
+      adjustments.push(`Raise ${topOverspent.category} by about ${formatUsd(roundMoney(topOverspent.overspentBy * 0.6))}, or tighten spend.`);
+    }
+    if (bufferDrawdown > 0) {
+      adjustments.push(`Move at least ${formatUsd(roundMoney(bufferDrawdown * 0.5))} from low-use categories to buffer.`);
+    }
+    if (settings.savingsGoal > 0 && savingsContribution === 0) {
+      adjustments.push('Add a recurring savings entry each cycle to stay on annual goal.');
+    }
+    if (planned > 0 && leftover / planned > 0.3) {
+      adjustments.push('Reallocate part of leftover into categories with repeated pressure.');
+    }
+    if (adjustments.length === 0) {
+      adjustments.push('Keep allocations steady and validate trend over the next cycle.');
+    }
+
+    return {
+      cycle,
+      isCurrent: index === cycles.length - 1,
+      planned,
+      availableStart,
+      spent,
+      leftover,
+      overspentAmount,
+      overspentCount,
+      protectedOverspentCount,
+      bufferStart,
+      bufferEnd,
+      bufferDrawdown,
+      bufferOverspendTransfer,
+      savingsContribution,
+      rolloverIn,
+      rolloverOut,
+      score,
+      wins,
+      misses,
+      adjustments,
+      categories,
+    };
+  });
+
+  const sample = reports.filter(r => r.cycle.endDate < toDateKey(new Date()));
+  const summarySource = sample.length > 0 ? sample : reports;
+  const averageScore = summarySource.reduce((sum, report) => sum + report.score, 0) / Math.max(summarySource.length, 1);
+  const best = [...summarySource].sort((a, b) => b.score - a.score)[0];
+  const worst = [...summarySource].sort((a, b) => a.score - b.score)[0];
+  const overspendRate = summarySource.filter(report => report.overspentCount > 0).length / Math.max(summarySource.length, 1);
+  const avgLeftoverRate = summarySource.reduce((sum, report) => sum + (report.planned > 0 ? report.leftover / report.planned : 0), 0) / Math.max(summarySource.length, 1);
+  const totalPlanned = summarySource.reduce((sum, report) => sum + report.planned, 0);
+  const totalSaved = summarySource.reduce((sum, report) => sum + report.savingsContribution, 0);
+  const savingsRate = totalPlanned > 0 ? totalSaved / totalPlanned : 0;
+
+  return {
+    cycles,
+    reports,
+    summary: {
+      averageScore: roundMoney(averageScore),
+      bestCycleId: best?.cycle.id || null,
+      worstCycleId: worst?.cycle.id || null,
+      overspendRate,
+      avgLeftoverRate,
+      savingsRate,
+    },
+    recommendations: buildCycleRecommendations(reports, budgets),
+  };
+};
+
+const computeCurrentCycleData = (settings: Settings, budgets: Budget[], entries: Entry[]) => {
+  const { cycles, statesByCycleId } = computeCycleStates(settings, budgets, entries);
+  if (cycles.length === 0) {
+    return { currentCycle: null as BudgetCycle | null, statesByBudgetId: new Map<string, EnvelopeCycleState>(), states: [] as EnvelopeCycleState[] };
+  }
+  const currentCycle = cycles[cycles.length - 1];
+  const states = statesByCycleId.get(currentCycle.id) || [];
+  return { currentCycle, statesByBudgetId: new Map(states.map(state => [state.budgetId, state])), states };
 };
 
 const generateId = (): string => Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -446,24 +775,42 @@ async function fetchStockPrice(symbol: string, apiKey: string): Promise<{ price:
 // ============================================
 
 const STORAGE_KEY = 'moneyhub_data';
+const STORAGE_META_KEY = 'moneyhub_meta';
+const hydrateState = (parsed?: Partial<AppState> | null): AppState => {
+  const budgets = Array.isArray(parsed?.budgets) ? parsed?.budgets.map((b: Budget) => normalizeBudget(b)) : defaultBudgets;
+  return {
+    entries: Array.isArray(parsed?.entries) ? parsed?.entries : defaultEntries,
+    budgets,
+    holdings: Array.isArray(parsed?.holdings) ? parsed?.holdings : defaultHoldings,
+    bills: Array.isArray(parsed?.bills) ? parsed?.bills : defaultBills,
+    settings: { ...defaultSettings, ...(parsed?.settings || {}) },
+  };
+};
 const loadState = (): AppState => {
   try {
     const s = localStorage.getItem(STORAGE_KEY);
     if (s) {
-      const parsed = JSON.parse(s);
-      const budgets = Array.isArray(parsed.budgets) ? parsed.budgets.map((b: Budget) => normalizeBudget(b)) : defaultBudgets;
-      return {
-        entries: Array.isArray(parsed.entries) ? parsed.entries : defaultEntries,
-        budgets,
-        holdings: Array.isArray(parsed.holdings) ? parsed.holdings : defaultHoldings,
-        bills: Array.isArray(parsed.bills) ? parsed.bills : defaultBills,
-        settings: { ...defaultSettings, ...(parsed.settings || {}) },
-      };
+      return hydrateState(JSON.parse(s));
     }
   } catch {}
-  return { entries: defaultEntries, budgets: defaultBudgets, holdings: defaultHoldings, bills: defaultBills, settings: defaultSettings };
+  return hydrateState(null);
 };
-const saveState = (state: AppState): void => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {} };
+const loadStateMeta = (): { updatedAt: number } => {
+  try {
+    const s = localStorage.getItem(STORAGE_META_KEY);
+    if (s) return JSON.parse(s);
+  } catch {}
+  return { updatedAt: 0 };
+};
+const saveStateMeta = (updatedAt: number): void => {
+  try { localStorage.setItem(STORAGE_META_KEY, JSON.stringify({ updatedAt })); } catch {}
+};
+const saveState = (state: AppState): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    saveStateMeta(Date.now());
+  } catch {}
+};
 
 // ============================================
 // COMPONENTS
@@ -482,6 +829,7 @@ function Sidebar() {
     { path: '/holdings', label: 'Holdings', icon: Icons.Portfolio },
     { path: '/entries', label: 'Entries', icon: Icons.Entries },
     { path: '/budgets', label: 'Budgets', icon: Icons.Budgets },
+    { path: '/analytics', label: 'Analytics', icon: Icons.Analytics },
     { path: '/settings', label: 'Settings', icon: Icons.Settings },
   ];
   return (
@@ -1434,6 +1782,167 @@ function BudgetForm({ budget, onSubmit, onCancel }: { budget?: Budget; onSubmit:
 }
 
 // ============================================
+// ANALYTICS PAGE
+// ============================================
+
+const getScoreClass = (score: number): 'good' | 'warn' | 'bad' => {
+  if (score >= 80) return 'good';
+  if (score >= 60) return 'warn';
+  return 'bad';
+};
+
+function AnalyticsPage({ state, onGoToSettings }: { state: AppState; onGoToSettings: () => void }) {
+  const needsSetup = !state.settings.firstPayDate || state.settings.payAmount === 0;
+  const analytics = useMemo(() => computeCycleHistoryAnalytics(state.settings, state.budgets, state.entries), [state.settings, state.budgets, state.entries]);
+  const todayKey = toDateKey(new Date());
+  const completedReports = analytics.reports.filter(report => report.cycle.endDate < todayKey);
+  const rows = (completedReports.length > 0 ? completedReports : analytics.reports).slice().reverse();
+  const highlightReport = rows[0] || null;
+
+  if (needsSetup) {
+    return (
+      <div className="dashboard">
+        <SetupPrompt onGoToSettings={onGoToSettings} />
+      </div>
+    );
+  }
+
+  if (analytics.reports.length === 0) {
+    return (
+      <div className="page-content analytics-page">
+        <div className="page-header">
+          <div>
+            <h1>Analytics</h1>
+            <p className="page-subtitle">No cycle history available yet.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-content analytics-page">
+      <div className="page-header">
+        <div>
+          <h1>Analytics</h1>
+          <p className="page-subtitle">Past cycle performance, insight signals, and next-cycle adjustments.</p>
+        </div>
+      </div>
+
+      <div className="analytics-summary-grid">
+        <div className="analytics-summary-card">
+          <span className="analytics-label">Average Score</span>
+          <strong className={`analytics-score ${getScoreClass(analytics.summary.averageScore)}`}>{analytics.summary.averageScore.toFixed(0)}</strong>
+        </div>
+        <div className="analytics-summary-card">
+          <span className="analytics-label">Overspend Rate</span>
+          <strong>{(analytics.summary.overspendRate * 100).toFixed(0)}%</strong>
+        </div>
+        <div className="analytics-summary-card">
+          <span className="analytics-label">Avg Leftover</span>
+          <strong>{(analytics.summary.avgLeftoverRate * 100).toFixed(0)}%</strong>
+        </div>
+        <div className="analytics-summary-card">
+          <span className="analytics-label">Savings Rate</span>
+          <strong>{(analytics.summary.savingsRate * 100).toFixed(1)}%</strong>
+        </div>
+      </div>
+
+      {highlightReport && (
+        <div className="analytics-insights-grid">
+          <div className="analytics-insight-card success">
+            <h3>What Went Well</h3>
+            <ul>
+              {(highlightReport.wins.length > 0 ? highlightReport.wins : ['No major positives logged this cycle.']).slice(0, 3).map(item => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="analytics-insight-card danger">
+            <h3>What Did Not</h3>
+            <ul>
+              {(highlightReport.misses.length > 0 ? highlightReport.misses : ['No major misses logged this cycle.']).slice(0, 3).map(item => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="analytics-insight-card action">
+            <h3>Adjust Next</h3>
+            <ul>
+              {highlightReport.adjustments.slice(0, 3).map(item => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      <div className="analytics-table-wrap">
+        <table className="analytics-table">
+          <thead>
+            <tr>
+              <th>Cycle</th>
+              <th>Score</th>
+              <th>Funded</th>
+              <th>Spent</th>
+              <th>Leftover</th>
+              <th>Over Budget</th>
+              <th>Buffer Used</th>
+              <th>Savings</th>
+              <th>Takeaway</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(report => (
+              <tr key={report.cycle.id}>
+                <td>
+                  {formatDate(report.cycle.startDate)} - {formatDate(report.cycle.endDate)}
+                  {report.isCurrent && <span className="analytics-current">Current</span>}
+                </td>
+                <td><span className={`analytics-score-chip ${getScoreClass(report.score)}`}>{report.score}</span></td>
+                <td>{formatCurrency(report.planned)}</td>
+                <td>{formatCurrency(report.spent)}</td>
+                <td>{formatCurrency(report.leftover)}</td>
+                <td>{formatCurrency(report.overspentAmount)}</td>
+                <td>{formatCurrency(report.bufferDrawdown)}</td>
+                <td>{formatCurrency(report.savingsContribution)}</td>
+                <td>{report.misses[0] || report.wins[0] || 'No signal'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="analytics-recommendations">
+        <h3>Recommended Next-Cycle Allocation Adjustments</h3>
+        {analytics.recommendations.length === 0 ? (
+          <div className="empty-state-small">Need at least two tracked cycles with consistent entries before recommendations appear.</div>
+        ) : (
+          <div className="analytics-recommendation-list">
+            {analytics.recommendations.map(rec => (
+              <div key={rec.budgetId} className="analytics-recommendation-item">
+                <div>
+                  <div className="analytics-recommendation-title">{rec.category}</div>
+                  <div className="analytics-recommendation-reason">{rec.reason}</div>
+                </div>
+                <div className="analytics-recommendation-values">
+                  <span>{formatCurrency(rec.currentAllocated)}</span>
+                  <span>{formatCurrency(rec.recommendedAllocated)}</span>
+                  <span className={rec.delta >= 0 ? 'positive' : 'negative'}>
+                    {rec.delta >= 0 ? '+' : ''}{formatCurrency(rec.delta)}
+                  </span>
+                  <span className="analytics-confidence">{rec.confidence}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================
 // SETTINGS PAGE
 // ============================================
 
@@ -1583,16 +2092,99 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user: authUser, authEnabled } = useAuth();
   const [state, setState] = useState<AppState>(loadState);
+  const stateRef = useRef(state);
+  const syncInProgressRef = useRef(false);
+  const skipNextRemoteSaveRef = useRef(false);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { saveState(state); }, [state]);
+  useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme || 'dark';
   }, [state.settings.theme]);
+  useEffect(() => {
+    const client = supabase;
+    if (!authEnabled || !authUser || !client) return;
+    let active = true;
+    const sync = async () => {
+      syncInProgressRef.current = true;
+      const localUpdatedAt = loadStateMeta().updatedAt || 0;
+      const { data, error } = await client
+        .from('moneyhub_user_data')
+        .select('data, updated_at')
+        .eq('user_id', authUser.id)
+        .single();
+      const notFound = error && error.code === 'PGRST116';
+      if (!active) return;
+      if (error && !notFound) {
+        console.error('Supabase sync error:', error);
+        syncInProgressRef.current = false;
+        return;
+      }
+      if (data?.data) {
+        const remoteUpdatedAtMs = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+        if (remoteUpdatedAtMs > localUpdatedAt) {
+          skipNextRemoteSaveRef.current = true;
+          const hydrated = hydrateState(data.data as Partial<AppState>);
+          setState(hydrated);
+          saveStateMeta(remoteUpdatedAtMs);
+        } else if (localUpdatedAt > remoteUpdatedAtMs) {
+          const { data: updated, error: upsertError } = await client
+            .from('moneyhub_user_data')
+            .upsert({ user_id: authUser.id, data: stateRef.current }, { onConflict: 'user_id' })
+            .select('updated_at')
+            .single();
+          if (!upsertError && updated?.updated_at) {
+            saveStateMeta(new Date(updated.updated_at).getTime());
+          }
+        }
+      } else if (notFound || !data) {
+        const { data: created, error: createError } = await client
+          .from('moneyhub_user_data')
+          .upsert({ user_id: authUser.id, data: stateRef.current }, { onConflict: 'user_id' })
+          .select('updated_at')
+          .single();
+        if (!createError && created?.updated_at) {
+          saveStateMeta(new Date(created.updated_at).getTime());
+        }
+      }
+      syncInProgressRef.current = false;
+    };
+    sync();
+    return () => { active = false; };
+  }, [authEnabled, authUser]);
+  useEffect(() => {
+    const client = supabase;
+    if (!authEnabled || !authUser || !client) return;
+    if (syncInProgressRef.current) return;
+    if (skipNextRemoteSaveRef.current) {
+      skipNextRemoteSaveRef.current = false;
+      return;
+    }
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(async () => {
+      const { data: updated, error } = await client
+        .from('moneyhub_user_data')
+        .upsert({ user_id: authUser.id, data: state }, { onConflict: 'user_id' })
+        .select('updated_at')
+        .single();
+      if (!error && updated?.updated_at) {
+        saveStateMeta(new Date(updated.updated_at).getTime());
+      }
+    }, 800);
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [authEnabled, authUser, state]);
   const pageTitles: Record<string, string> = {
     '/': 'Dashboard',
     '/holdings': 'Holdings',
     '/entries': 'Entries',
     '/budgets': 'Budgets',
+    '/analytics': 'Analytics',
     '/settings': 'Settings',
   };
   const pageTitle = pageTitles[location.pathname] || 'Dashboard';
@@ -1607,6 +2199,7 @@ function App() {
           <Route path="/holdings" element={<HoldingsPage state={state} setState={setState} />} />
           <Route path="/entries" element={<EntriesPage state={state} setState={setState} />} />
           <Route path="/budgets" element={<BudgetsPage state={state} setState={setState} />} />
+          <Route path="/analytics" element={<AnalyticsPage state={state} onGoToSettings={goToSettings} />} />
           <Route path="/settings" element={<SettingsPage state={state} setState={setState} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
