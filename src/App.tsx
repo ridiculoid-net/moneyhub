@@ -793,6 +793,7 @@ async function fetchStockPrice(symbol: string, apiKey: string): Promise<{ price:
 const STORAGE_KEY = 'moneyhub_data';
 const STORAGE_META_KEY = 'moneyhub_meta';
 const STORAGE_BACKUP_KEY = 'moneyhub_data_backup';
+const CLOUD_SYNC_ISSUE_KEY = 'moneyhub_cloud_sync_issue';
 
 interface StoredStateSnapshot {
   version: number;
@@ -886,6 +887,16 @@ const saveState = (state: AppState): void => {
   if (savedPrimary || savedBackup) {
     saveStateMeta(updatedAt);
   }
+};
+
+const saveCloudSyncIssue = (message: string | null): void => {
+  try {
+    if (!message) {
+      localStorage.removeItem(CLOUD_SYNC_ISSUE_KEY);
+      return;
+    }
+    localStorage.setItem(CLOUD_SYNC_ISSUE_KEY, message);
+  } catch {}
 };
 
 // ============================================
@@ -2549,7 +2560,7 @@ function AnalyticsPage({ state, onGoToSettings }: { state: AppState; onGoToSetti
 // SETTINGS PAGE
 // ============================================
 
-function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppState) => void }) {
+function SettingsPage({ state, setState, cloudSyncIssue }: { state: AppState; setState: (s: AppState) => void; cloudSyncIssue: string | null }) {
   const [settings, setLocal] = useState(state.settings);
   const [saved, setSaved] = useState(false);
   const { user: authUser, authEnabled, loading: authLoading, signInWithGoogle, signOut } = useAuth();
@@ -2656,6 +2667,9 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
         <div className="settings-section">
           <h3>Sign In</h3>
           <p className="settings-description">Optional Google login. Use this to link your data to a single identity.</p>
+          {cloudSyncIssue && authEnabled && authUser && (
+            <p className="settings-description" role="alert">{cloudSyncIssue}</p>
+          )}
           {!authEnabled ? (
             <p className="settings-description">Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (optional VITE_SUPABASE_REDIRECT_URL) to enable Google sign-in.</p>
           ) : authLoading ? (
@@ -2698,29 +2712,46 @@ function App() {
   const navigate = useNavigate();
   const { user: authUser, authEnabled } = useAuth();
   const [state, setState] = useState<AppState>(loadState);
+  const [cloudSyncIssue, setCloudSyncIssue] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(CLOUD_SYNC_ISSUE_KEY);
+    } catch {
+      return null;
+    }
+  });
   const stateRef = useRef(state);
   const syncInProgressRef = useRef(false);
   const skipNextRemoteSaveRef = useRef(false);
   const pendingRemoteSaveRef = useRef(false);
   const localRevisionRef = useRef(0);
+  const remoteSyncDisabledRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setCloudSyncIssueState = useCallback((message: string | null) => {
+    setCloudSyncIssue(message);
+    saveCloudSyncIssue(message);
+  }, []);
   const pushStateToRemote = useCallback(async (snapshot: AppState): Promise<number | null> => {
     const client = supabase;
-    if (!authEnabled || !authUser || !client) return null;
+    if (!authEnabled || !authUser || !client || remoteSyncDisabledRef.current) return null;
     const { data: updated, error } = await client
       .from('moneyhub_user_data')
       .upsert({ user_id: authUser.id, data: snapshot }, { onConflict: 'user_id' })
       .select('updated_at')
       .single();
     if (error) {
+      if (error.code === 'PGRST205') {
+        remoteSyncDisabledRef.current = true;
+        setCloudSyncIssueState('Cloud sync is disabled: Supabase table "moneyhub_user_data" is missing. Local saves are still active.');
+      }
       console.error('Supabase save error:', error);
       return null;
     }
+    setCloudSyncIssueState(null);
     if (!updated?.updated_at) return null;
     const updatedAtMs = new Date(updated.updated_at).getTime();
     saveStateMeta(updatedAtMs);
     return updatedAtMs;
-  }, [authEnabled, authUser]);
+  }, [authEnabled, authUser, setCloudSyncIssueState]);
   useEffect(() => {
     saveState(state);
     localRevisionRef.current += 1;
@@ -2732,6 +2763,8 @@ function App() {
   useEffect(() => {
     const client = supabase;
     if (!authEnabled || !authUser || !client) return;
+    remoteSyncDisabledRef.current = false;
+    setCloudSyncIssueState(null);
     let active = true;
     const sync = async () => {
       syncInProgressRef.current = true;
@@ -2746,6 +2779,11 @@ function App() {
         const notFound = error && error.code === 'PGRST116';
         if (!active) return;
         if (error && !notFound) {
+          if (error.code === 'PGRST205') {
+            remoteSyncDisabledRef.current = true;
+            setCloudSyncIssueState('Cloud sync is disabled: Supabase table "moneyhub_user_data" is missing. Local saves are still active.');
+            return;
+          }
           console.error('Supabase sync error:', error);
           return;
         }
@@ -2781,9 +2819,9 @@ function App() {
     };
     void sync();
     return () => { active = false; };
-  }, [authEnabled, authUser, pushStateToRemote]);
+  }, [authEnabled, authUser, pushStateToRemote, setCloudSyncIssueState]);
   useEffect(() => {
-    if (!authEnabled || !authUser || !supabase) return;
+    if (!authEnabled || !authUser || !supabase || remoteSyncDisabledRef.current) return;
     if (syncInProgressRef.current) {
       pendingRemoteSaveRef.current = true;
       return;
@@ -2825,7 +2863,7 @@ function App() {
           <Route path="/entries" element={<EntriesPage state={state} setState={setState} />} />
           <Route path="/budgets" element={<BudgetsPage state={state} setState={setState} />} />
           <Route path="/analytics" element={<AnalyticsPage state={state} onGoToSettings={goToSettings} />} />
-          <Route path="/settings" element={<SettingsPage state={state} setState={setState} />} />
+          <Route path="/settings" element={<SettingsPage state={state} setState={setState} cloudSyncIssue={cloudSyncIssue} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

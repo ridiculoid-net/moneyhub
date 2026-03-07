@@ -71,3 +71,15 @@ export default defineConfig([
   },
 ])
 ```
+
+## MoneyHub Cloud Sync Setup
+
+Google sign-in sync requires this Supabase table:
+
+- `public.moneyhub_user_data`
+
+If you see `PGRST205` / `Could not find the table 'public.moneyhub_user_data'`, run the migration in:
+
+- `supabase/migrations/20260306_create_moneyhub_user_data.sql`
+
+After running it, signed-in users can sync data by `user_id`, and signed-out users still save locally in browser storage.
