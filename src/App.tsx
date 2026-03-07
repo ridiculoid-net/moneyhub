@@ -52,6 +52,18 @@ interface Bill {
   paid: boolean;
 }
 
+interface Debt {
+  id: string;
+  name: string;
+  type: 'credit_card' | 'loan' | 'other';
+  balance: number;
+  apr: number;
+  minPayment: number;
+  dueDay: number;
+  creditLimit?: number;
+  notes?: string;
+}
+
 interface Settings {
   userName: string;
   payAmount: number;
@@ -68,6 +80,7 @@ interface AppState {
   budgets: Budget[];
   holdings: Holding[];
   bills: Bill[];
+  debts: Debt[];
   settings: Settings;
 }
 
@@ -167,6 +180,7 @@ const Icons = {
   Portfolio: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" /></svg>),
   Entries: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>),
   Budgets: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>),
+  Debt: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="6" width="20" height="12" rx="2" /><line x1="2" y1="10" x2="22" y2="10" /><line x1="7" y1="14" x2="10" y2="14" /></svg>),
   Analytics: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="20" x2="20" y2="20" /><rect x="6" y="10" width="3" height="8" rx="1" /><rect x="11" y="6" width="3" height="12" rx="1" /><rect x="16" y="13" width="3" height="5" rx="1" /></svg>),
   Settings: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>),
   Search: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>),
@@ -223,6 +237,8 @@ const defaultBudgets: Budget[] = [
 const defaultHoldings: Holding[] = [];
 
 const defaultBills: Bill[] = [];
+
+const defaultDebts: Debt[] = [];
 
 const defaultEntries: Entry[] = [];
 
@@ -776,6 +792,51 @@ async function fetchStockPrice(symbol: string, apiKey: string): Promise<{ price:
 
 const STORAGE_KEY = 'moneyhub_data';
 const STORAGE_META_KEY = 'moneyhub_meta';
+const STORAGE_BACKUP_KEY = 'moneyhub_data_backup';
+
+interface StoredStateSnapshot {
+  version: number;
+  updatedAt: number;
+  state: Partial<AppState>;
+}
+
+const isValidSnapshot = (value: unknown): value is StoredStateSnapshot => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<StoredStateSnapshot>;
+  return typeof candidate.version === 'number'
+    && typeof candidate.updatedAt === 'number'
+    && Boolean(candidate.state && typeof candidate.state === 'object');
+};
+
+const loadSnapshotFromKey = (storageKey: string): { state: AppState; updatedAt: number } | null => {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (isValidSnapshot(parsed)) {
+      return {
+        state: hydrateState(parsed.state),
+        updatedAt: Number.isFinite(parsed.updatedAt) ? parsed.updatedAt : 0,
+      };
+    }
+    // Backward compatibility for legacy payloads that stored AppState directly.
+    return { state: hydrateState(parsed as Partial<AppState>), updatedAt: 0 };
+  } catch {
+    return null;
+  }
+};
+
+const persistSnapshot = (storageKey: string, state: AppState, updatedAt: number): boolean => {
+  try {
+    const payload: StoredStateSnapshot = { version: 2, updatedAt, state };
+    localStorage.setItem(storageKey, JSON.stringify(payload));
+    return true;
+  } catch (error) {
+    console.error(`Failed to persist ${storageKey}:`, error);
+    return false;
+  }
+};
+
 const hydrateState = (parsed?: Partial<AppState> | null): AppState => {
   const budgets = Array.isArray(parsed?.budgets) ? parsed?.budgets.map((b: Budget) => normalizeBudget(b)) : defaultBudgets;
   return {
@@ -783,10 +844,17 @@ const hydrateState = (parsed?: Partial<AppState> | null): AppState => {
     budgets,
     holdings: Array.isArray(parsed?.holdings) ? parsed?.holdings : defaultHoldings,
     bills: Array.isArray(parsed?.bills) ? parsed?.bills : defaultBills,
+    debts: Array.isArray(parsed?.debts) ? parsed?.debts : defaultDebts,
     settings: { ...defaultSettings, ...(parsed?.settings || {}) },
   };
 };
 const loadState = (): AppState => {
+  const primarySnapshot = loadSnapshotFromKey(STORAGE_KEY);
+  if (primarySnapshot) return primarySnapshot.state;
+
+  const backupSnapshot = loadSnapshotFromKey(STORAGE_BACKUP_KEY);
+  if (backupSnapshot) return backupSnapshot.state;
+
   try {
     const s = localStorage.getItem(STORAGE_KEY);
     if (s) {
@@ -796,6 +864,12 @@ const loadState = (): AppState => {
   return hydrateState(null);
 };
 const loadStateMeta = (): { updatedAt: number } => {
+  const primarySnapshot = loadSnapshotFromKey(STORAGE_KEY);
+  if (primarySnapshot) return { updatedAt: primarySnapshot.updatedAt };
+
+  const backupSnapshot = loadSnapshotFromKey(STORAGE_BACKUP_KEY);
+  if (backupSnapshot) return { updatedAt: backupSnapshot.updatedAt };
+
   try {
     const s = localStorage.getItem(STORAGE_META_KEY);
     if (s) return JSON.parse(s);
@@ -806,10 +880,12 @@ const saveStateMeta = (updatedAt: number): void => {
   try { localStorage.setItem(STORAGE_META_KEY, JSON.stringify({ updatedAt })); } catch {}
 };
 const saveState = (state: AppState): void => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    saveStateMeta(Date.now());
-  } catch {}
+  const updatedAt = Date.now();
+  const savedPrimary = persistSnapshot(STORAGE_KEY, state, updatedAt);
+  const savedBackup = persistSnapshot(STORAGE_BACKUP_KEY, state, updatedAt);
+  if (savedPrimary || savedBackup) {
+    saveStateMeta(updatedAt);
+  }
 };
 
 // ============================================
@@ -827,6 +903,7 @@ function Sidebar() {
   const items = [
     { path: '/', label: 'Dashboard', icon: Icons.Dashboard },
     { path: '/holdings', label: 'Holdings', icon: Icons.Portfolio },
+    { path: '/debts', label: 'Debts', icon: Icons.Debt },
     { path: '/entries', label: 'Entries', icon: Icons.Entries },
     { path: '/budgets', label: 'Budgets', icon: Icons.Budgets },
     { path: '/analytics', label: 'Analytics', icon: Icons.Analytics },
@@ -1410,6 +1487,532 @@ function HoldingForm({ holding, onSubmit, onCancel }: { holding?: Holding; onSub
 }
 
 // ============================================
+// DEBTS PAGE
+// ============================================
+
+const getDebtTypeLabel = (type: Debt['type']): string => {
+  if (type === 'credit_card') return 'Credit Card';
+  if (type === 'loan') return 'Loan';
+  return 'Other';
+};
+
+type DebtPayoffStrategy = 'avalanche' | 'snowball';
+
+interface DebtProjectionRow {
+  month: number;
+  payment: number;
+  interest: number;
+  principal: number;
+  remaining: number;
+  paidOff: string[];
+}
+
+interface DebtPayoffProjection {
+  strategy: DebtPayoffStrategy;
+  monthlyBudget: number;
+  minRequired: number;
+  months: number | null;
+  debtFreeDate: string | null;
+  totalInterest: number;
+  totalPaid: number;
+  order: string[];
+  rows: DebtProjectionRow[];
+  feasible: boolean;
+  message?: string;
+}
+
+const computeDebtPayoffProjection = (
+  debts: Debt[],
+  strategy: DebtPayoffStrategy,
+  extraPayment: number,
+): DebtPayoffProjection => {
+  const normalized = debts
+    .filter(debt => debt.balance > 0)
+    .map(debt => ({
+      id: debt.id,
+      name: debt.name,
+      balance: Math.max(0, debt.balance),
+      apr: Math.max(0, debt.apr),
+      minPayment: Math.max(0, debt.minPayment),
+    }));
+  const minRequired = normalized.reduce((sum, debt) => sum + debt.minPayment, 0);
+  const monthlyBudget = minRequired + Math.max(0, extraPayment);
+  if (normalized.length === 0) {
+    return {
+      strategy,
+      monthlyBudget,
+      minRequired,
+      months: 0,
+      debtFreeDate: null,
+      totalInterest: 0,
+      totalPaid: 0,
+      order: [],
+      rows: [],
+      feasible: true,
+    };
+  }
+  if (monthlyBudget <= 0) {
+    return {
+      strategy,
+      monthlyBudget,
+      minRequired,
+      months: null,
+      debtFreeDate: null,
+      totalInterest: 0,
+      totalPaid: 0,
+      order: [],
+      rows: [],
+      feasible: false,
+      message: 'Set a monthly payment above $0 to generate a payoff plan.',
+    };
+  }
+
+  const debtsState = normalized.map(debt => ({ ...debt }));
+  const rows: DebtProjectionRow[] = [];
+  const order: string[] = [];
+  const maxMonths = 1200;
+  let totalInterest = 0;
+  let totalPaid = 0;
+  let stalledMonths = 0;
+  let previousRemaining = debtsState.reduce((sum, debt) => sum + debt.balance, 0);
+
+  for (let month = 1; month <= maxMonths; month++) {
+    let interestMonth = 0;
+    debtsState.forEach(debt => {
+      if (debt.balance <= 0) return;
+      const interest = debt.balance * (debt.apr / 100 / 12);
+      debt.balance += interest;
+      interestMonth += interest;
+    });
+    totalInterest += interestMonth;
+
+    let remainingBudget = monthlyBudget;
+    let principalMonth = 0;
+    const paidOffThisMonth: string[] = [];
+
+    for (const debt of debtsState) {
+      if (debt.balance <= 0) continue;
+      const minDue = Math.max(0, debt.minPayment);
+      if (minDue <= 0) continue;
+      const payment = Math.min(debt.balance, minDue, remainingBudget);
+      if (payment <= 0) continue;
+      debt.balance -= payment;
+      remainingBudget -= payment;
+      principalMonth += payment;
+      if (debt.balance <= 0.005) {
+        debt.balance = 0;
+        if (!order.includes(debt.name)) {
+          order.push(debt.name);
+          paidOffThisMonth.push(debt.name);
+        }
+      }
+    }
+
+    while (remainingBudget > 0.005) {
+      const targets = debtsState.filter(debt => debt.balance > 0.005);
+      if (targets.length === 0) break;
+      targets.sort((a, b) => {
+        if (strategy === 'avalanche') {
+          if (b.apr !== a.apr) return b.apr - a.apr;
+          return a.balance - b.balance;
+        }
+        if (a.balance !== b.balance) return a.balance - b.balance;
+        return b.apr - a.apr;
+      });
+      const target = targets[0];
+      const payment = Math.min(remainingBudget, target.balance);
+      if (payment <= 0) break;
+      target.balance -= payment;
+      remainingBudget -= payment;
+      principalMonth += payment;
+      if (target.balance <= 0.005) {
+        target.balance = 0;
+        if (!order.includes(target.name)) {
+          order.push(target.name);
+          paidOffThisMonth.push(target.name);
+        }
+      }
+    }
+
+    const remaining = debtsState.reduce((sum, debt) => sum + debt.balance, 0);
+    const paymentMonth = monthlyBudget - remainingBudget;
+    totalPaid += paymentMonth;
+    rows.push({
+      month,
+      payment: roundMoney(paymentMonth),
+      interest: roundMoney(interestMonth),
+      principal: roundMoney(principalMonth),
+      remaining: roundMoney(remaining),
+      paidOff: paidOffThisMonth,
+    });
+
+    if (remaining <= 0.005) {
+      const debtFreeDate = new Date();
+      debtFreeDate.setDate(1);
+      debtFreeDate.setMonth(debtFreeDate.getMonth() + month);
+      return {
+        strategy,
+        monthlyBudget: roundMoney(monthlyBudget),
+        minRequired: roundMoney(minRequired),
+        months: month,
+        debtFreeDate: debtFreeDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        totalInterest: roundMoney(totalInterest),
+        totalPaid: roundMoney(totalPaid),
+        order,
+        rows,
+        feasible: true,
+      };
+    }
+
+    if (remaining >= previousRemaining - 0.01) {
+      stalledMonths += 1;
+    } else {
+      stalledMonths = 0;
+    }
+    previousRemaining = remaining;
+    if (stalledMonths >= 6) {
+      return {
+        strategy,
+        monthlyBudget: roundMoney(monthlyBudget),
+        minRequired: roundMoney(minRequired),
+        months: null,
+        debtFreeDate: null,
+        totalInterest: roundMoney(totalInterest),
+        totalPaid: roundMoney(totalPaid),
+        order,
+        rows,
+        feasible: false,
+        message: 'Current payment level does not reduce balances consistently. Increase monthly extra payment.',
+      };
+    }
+  }
+
+  return {
+    strategy,
+    monthlyBudget: roundMoney(monthlyBudget),
+    minRequired: roundMoney(minRequired),
+    months: null,
+    debtFreeDate: null,
+    totalInterest: roundMoney(totalInterest),
+    totalPaid: roundMoney(totalPaid),
+    order,
+    rows,
+    feasible: false,
+    message: 'Projection exceeded 100 years. Increase payment amount to get a realistic payoff date.',
+  };
+};
+
+function DebtsPage({ state, setState }: { state: AppState; setState: (s: AppState) => void }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [payoffStrategy, setPayoffStrategy] = useState<DebtPayoffStrategy>('avalanche');
+  const [extraPaymentInput, setExtraPaymentInput] = useState('0');
+  const debts = useMemo(() => [...state.debts].sort((a, b) => b.balance - a.balance), [state.debts]);
+  const extraPayment = Math.max(0, parseFloat(extraPaymentInput) || 0);
+  const totalDebt = debts.reduce((sum, debt) => sum + debt.balance, 0);
+  const totalMinPayment = debts.reduce((sum, debt) => sum + debt.minPayment, 0);
+  const weightedApr = totalDebt > 0
+    ? debts.reduce((sum, debt) => sum + (debt.balance * debt.apr), 0) / totalDebt
+    : 0;
+  const totalCreditLimit = debts
+    .filter(debt => debt.type === 'credit_card' && (debt.creditLimit || 0) > 0)
+    .reduce((sum, debt) => sum + (debt.creditLimit || 0), 0);
+  const totalCreditUsed = debts
+    .filter(debt => debt.type === 'credit_card')
+    .reduce((sum, debt) => sum + debt.balance, 0);
+  const creditUtilization = totalCreditLimit > 0 ? (totalCreditUsed / totalCreditLimit) * 100 : 0;
+  const payoffProjection = useMemo(
+    () => computeDebtPayoffProjection(debts, payoffStrategy, extraPayment),
+    [debts, payoffStrategy, extraPayment],
+  );
+  const payoffPreviewRows = payoffProjection.rows.slice(0, 12);
+  const payoffOrder = payoffProjection.order.length > 0 ? payoffProjection.order : debts.map(d => d.name);
+
+  const handleSave = (debt: Debt) => {
+    const ns = {
+      ...state,
+      debts: editingId
+        ? state.debts.map(existing => (existing.id === editingId ? debt : existing))
+        : [...state.debts, { ...debt, id: generateId() }],
+    };
+    setState(ns);
+    saveState(ns);
+    setEditingId(null);
+    setShowAdd(false);
+  };
+
+  const handleDelete = (id: string) => {
+    const ns = { ...state, debts: state.debts.filter(debt => debt.id !== id) };
+    setState(ns);
+    saveState(ns);
+  };
+
+  return (
+    <div className="page-content debts-page">
+      <div className="page-header">
+        <div>
+          <h1>Debts</h1>
+          <p className="page-subtitle">Track balances, APR, and minimum payments.</p>
+        </div>
+        <button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Debt</span></button>
+      </div>
+
+      <div className="summary-cards">
+        <div className="summary-card">
+          <div className="summary-label">Total Debt</div>
+          <div className="summary-value danger">{formatCurrency(totalDebt)}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Monthly Minimums</div>
+          <div className="summary-value">{formatCurrency(totalMinPayment)}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Weighted APR</div>
+          <div className="summary-value">{weightedApr.toFixed(2)}%</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Card Utilization</div>
+          <div className={`summary-value ${creditUtilization > 30 ? 'danger' : ''}`}>{creditUtilization.toFixed(1)}%</div>
+        </div>
+      </div>
+
+      {debts.length > 0 && (
+        <div className="debt-planner">
+          <div className="debt-planner-header">
+            <h3>Payoff Planner</h3>
+            <p>Compare avalanche vs snowball using your minimums plus extra payment.</p>
+          </div>
+          <div className="debt-planner-controls">
+            <div className="debt-strategy-toggle">
+              <button
+                type="button"
+                className={`debt-strategy-btn ${payoffStrategy === 'avalanche' ? 'active' : ''}`}
+                onClick={() => setPayoffStrategy('avalanche')}
+              >
+                Avalanche
+              </button>
+              <button
+                type="button"
+                className={`debt-strategy-btn ${payoffStrategy === 'snowball' ? 'active' : ''}`}
+                onClick={() => setPayoffStrategy('snowball')}
+              >
+                Snowball
+              </button>
+            </div>
+            <label className="debt-extra-input">
+              <span>Extra Monthly Payment</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={extraPaymentInput}
+                onChange={e => setExtraPaymentInput(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="debt-planner-kpis">
+            <div className="debt-planner-kpi">
+              <span>Monthly Budget</span>
+              <strong>{formatCurrency(payoffProjection.monthlyBudget)}</strong>
+              <small>Minimums {formatCurrency(payoffProjection.minRequired)} + Extra {formatCurrency(extraPayment)}</small>
+            </div>
+            <div className="debt-planner-kpi">
+              <span>Debt-Free In</span>
+              <strong>{payoffProjection.months === null ? '--' : `${payoffProjection.months} months`}</strong>
+              <small>{payoffProjection.debtFreeDate ? `Around ${payoffProjection.debtFreeDate}` : 'No payoff date yet'}</small>
+            </div>
+            <div className="debt-planner-kpi">
+              <span>Total Interest</span>
+              <strong>{formatCurrency(payoffProjection.totalInterest)}</strong>
+              <small>Total paid {formatCurrency(payoffProjection.totalPaid)}</small>
+            </div>
+          </div>
+
+          {!payoffProjection.feasible && payoffProjection.message && (
+            <div className="debt-planner-warning">{payoffProjection.message}</div>
+          )}
+
+          <div className="debt-order">
+            <span>Projected Payoff Order:</span>
+            <div className="debt-order-chips">
+              {payoffOrder.map((name, index) => (
+                <span key={`${name}-${index}`} className="debt-order-chip">{name}</span>
+              ))}
+            </div>
+          </div>
+
+          <div className="debt-projection-table-wrap">
+            <table className="debt-projection-table">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Payment</th>
+                  <th>Interest</th>
+                  <th>Principal</th>
+                  <th>Remaining</th>
+                  <th>Paid Off</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payoffPreviewRows.map(row => (
+                  <tr key={row.month}>
+                    <td>{row.month}</td>
+                    <td>{formatCurrency(row.payment)}</td>
+                    <td>{formatCurrency(row.interest)}</td>
+                    <td>{formatCurrency(row.principal)}</td>
+                    <td>{formatCurrency(row.remaining)}</td>
+                    <td>{row.paidOff.length > 0 ? row.paidOff.join(', ') : '--'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {payoffProjection.rows.length > payoffPreviewRows.length && (
+              <div className="debt-projection-note">Showing first 12 months of projection.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {debts.length === 0 ? (
+        <div className="empty-state">
+          <Icons.Debt />
+          <h3>No debts yet</h3>
+          <p>Add cards or loans to track your debt payoff plan.</p>
+          <button className="btn-primary" onClick={() => setShowAdd(true)}><Icons.Plus /><span>Add Debt</span></button>
+        </div>
+      ) : (
+        <div className="debt-list">
+          {debts.map(debt => {
+            const limit = debt.creditLimit || 0;
+            const utilization = debt.type === 'credit_card' && limit > 0 ? Math.min((debt.balance / limit) * 100, 100) : 0;
+            const isHighApr = debt.apr >= 20;
+            return (
+              <div key={debt.id} className="debt-item">
+                <div className="debt-main">
+                  <div className="debt-name-row">
+                    <h4>{debt.name}</h4>
+                    <span className="debt-type-chip">{getDebtTypeLabel(debt.type)}</span>
+                  </div>
+                  <div className="debt-meta">
+                    <span>APR {debt.apr.toFixed(2)}%</span>
+                    <span>Min {formatCurrency(debt.minPayment)}</span>
+                    <span>Due {debt.dueDay}th</span>
+                    {debt.notes ? <span>{debt.notes}</span> : null}
+                  </div>
+                  {debt.type === 'credit_card' && limit > 0 && (
+                    <div className="debt-util">
+                      <div className="debt-util-bar">
+                        <div className={`debt-util-fill ${utilization > 30 ? 'over' : ''}`} style={{ width: `${utilization}%` }}></div>
+                      </div>
+                      <span>{formatCurrency(debt.balance)} / {formatCurrency(limit)} ({utilization.toFixed(1)}%)</span>
+                    </div>
+                  )}
+                </div>
+                <div className="debt-side">
+                  <div className={`debt-balance ${isHighApr ? 'danger' : ''}`}>{formatCurrency(debt.balance)}</div>
+                  <div className="debt-actions">
+                    <button className="icon-btn" onClick={() => setEditingId(debt.id)}><Icons.Edit /></button>
+                    <button className="icon-btn danger" onClick={() => handleDelete(debt.id)}><Icons.Trash /></button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Modal isOpen={showAdd || editingId !== null} onClose={() => { setShowAdd(false); setEditingId(null); }} title={editingId ? 'Edit Debt' : 'Add Debt'}>
+        <DebtForm
+          debt={editingId ? state.debts.find(debt => debt.id === editingId) : undefined}
+          onSubmit={handleSave}
+          onCancel={() => { setShowAdd(false); setEditingId(null); }}
+        />
+      </Modal>
+    </div>
+  );
+}
+
+function DebtForm({ debt, onSubmit, onCancel }: { debt?: Debt; onSubmit: (d: Debt) => void; onCancel: () => void }) {
+  const [name, setName] = useState(debt?.name || '');
+  const [type, setType] = useState<Debt['type']>(debt?.type || 'credit_card');
+  const [balance, setBalance] = useState(debt?.balance?.toString() || '');
+  const [apr, setApr] = useState(debt?.apr?.toString() || '');
+  const [minPayment, setMinPayment] = useState(debt?.minPayment?.toString() || '');
+  const [dueDay, setDueDay] = useState((debt?.dueDay || 1).toString());
+  const [creditLimit, setCreditLimit] = useState(debt?.creditLimit?.toString() || '');
+  const [notes, setNotes] = useState(debt?.notes || '');
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    onSubmit({
+      id: debt?.id || '',
+      name,
+      type,
+      balance: parseFloat(balance) || 0,
+      apr: parseFloat(apr) || 0,
+      minPayment: parseFloat(minPayment) || 0,
+      dueDay: Math.min(31, Math.max(1, parseInt(dueDay, 10) || 1)),
+      creditLimit: type === 'credit_card' ? (parseFloat(creditLimit) || 0) : undefined,
+      notes: notes.trim() || undefined,
+    });
+  };
+
+  return (
+    <form className="entry-form" onSubmit={handleSubmit}>
+      <div className="form-row">
+        <div className="form-group">
+          <label>Name</label>
+          <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Visa Platinum" required />
+        </div>
+        <div className="form-group">
+          <label>Type</label>
+          <select value={type} onChange={e => setType(e.target.value as Debt['type'])}>
+            <option value="credit_card">Credit Card</option>
+            <option value="loan">Loan</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div className="form-row">
+        <div className="form-group">
+          <label>Current Balance</label>
+          <input type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)} placeholder="0.00" required />
+        </div>
+        <div className="form-group">
+          <label>APR %</label>
+          <input type="number" step="0.01" value={apr} onChange={e => setApr(e.target.value)} placeholder="19.99" required />
+        </div>
+      </div>
+      <div className="form-row">
+        <div className="form-group">
+          <label>Minimum Payment</label>
+          <input type="number" step="0.01" value={minPayment} onChange={e => setMinPayment(e.target.value)} placeholder="0.00" required />
+        </div>
+        <div className="form-group">
+          <label>Due Day (1-31)</label>
+          <input type="number" min="1" max="31" value={dueDay} onChange={e => setDueDay(e.target.value)} required />
+        </div>
+      </div>
+      {type === 'credit_card' && (
+        <div className="form-group">
+          <label>Credit Limit (optional)</label>
+          <input type="number" step="0.01" value={creditLimit} onChange={e => setCreditLimit(e.target.value)} placeholder="5000.00" />
+        </div>
+      )}
+      <div className="form-group">
+        <label>Notes (optional)</label>
+        <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="0% promo ends in June" />
+      </div>
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="btn-primary">Save Debt</button>
+      </div>
+    </form>
+  );
+}
+
+// ============================================
 // ENTRIES PAGE
 // ============================================
 
@@ -1974,6 +2577,7 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
           budgets: Array.isArray(parsed.budgets) ? parsed.budgets.map((b: Budget) => normalizeBudget(b)) : defaultBudgets,
           holdings: Array.isArray(parsed.holdings) ? parsed.holdings : defaultHoldings,
           bills: Array.isArray(parsed.bills) ? parsed.bills : defaultBills,
+          debts: Array.isArray(parsed.debts) ? parsed.debts : defaultDebts,
           settings: { ...defaultSettings, ...(parsed.settings || {}) },
         };
         setState(imported);
@@ -1989,7 +2593,7 @@ function SettingsPage({ state, setState }: { state: AppState; setState: (s: AppS
     event.target.value = '';
   };
   const handleSave = () => { const ns = { ...state, settings }; setState(ns); saveState(ns); setSaved(true); setTimeout(() => setSaved(false), 2000); };
-  const handleReset = () => { if (confirm('Reset all data? This cannot be undone.')) { const ns = { entries: defaultEntries, budgets: defaultBudgets, holdings: defaultHoldings, bills: defaultBills, settings: defaultSettings }; setState(ns); saveState(ns); setLocal(defaultSettings); } };
+  const handleReset = () => { if (confirm('Reset all data? This cannot be undone.')) { const ns = { entries: defaultEntries, budgets: defaultBudgets, holdings: defaultHoldings, bills: defaultBills, debts: defaultDebts, settings: defaultSettings }; setState(ns); saveState(ns); setLocal(defaultSettings); } };
   const applyTheme = (theme: Settings['theme']) => {
     setLocal(prev => ({ ...prev, theme }));
     const ns = { ...state, settings: { ...state.settings, theme } };
@@ -2097,8 +2701,30 @@ function App() {
   const stateRef = useRef(state);
   const syncInProgressRef = useRef(false);
   const skipNextRemoteSaveRef = useRef(false);
+  const pendingRemoteSaveRef = useRef(false);
+  const localRevisionRef = useRef(0);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => { saveState(state); }, [state]);
+  const pushStateToRemote = useCallback(async (snapshot: AppState): Promise<number | null> => {
+    const client = supabase;
+    if (!authEnabled || !authUser || !client) return null;
+    const { data: updated, error } = await client
+      .from('moneyhub_user_data')
+      .upsert({ user_id: authUser.id, data: snapshot }, { onConflict: 'user_id' })
+      .select('updated_at')
+      .single();
+    if (error) {
+      console.error('Supabase save error:', error);
+      return null;
+    }
+    if (!updated?.updated_at) return null;
+    const updatedAtMs = new Date(updated.updated_at).getTime();
+    saveStateMeta(updatedAtMs);
+    return updatedAtMs;
+  }, [authEnabled, authUser]);
+  useEffect(() => {
+    saveState(state);
+    localRevisionRef.current += 1;
+  }, [state]);
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme || 'dark';
@@ -2109,55 +2735,59 @@ function App() {
     let active = true;
     const sync = async () => {
       syncInProgressRef.current = true;
-      const localUpdatedAt = loadStateMeta().updatedAt || 0;
-      const { data, error } = await client
-        .from('moneyhub_user_data')
-        .select('data, updated_at')
-        .eq('user_id', authUser.id)
-        .single();
-      const notFound = error && error.code === 'PGRST116';
-      if (!active) return;
-      if (error && !notFound) {
-        console.error('Supabase sync error:', error);
-        syncInProgressRef.current = false;
-        return;
-      }
-      if (data?.data) {
-        const remoteUpdatedAtMs = data.updated_at ? new Date(data.updated_at).getTime() : 0;
-        if (remoteUpdatedAtMs > localUpdatedAt) {
-          skipNextRemoteSaveRef.current = true;
-          const hydrated = hydrateState(data.data as Partial<AppState>);
-          setState(hydrated);
-          saveStateMeta(remoteUpdatedAtMs);
-        } else if (localUpdatedAt > remoteUpdatedAtMs) {
-          const { data: updated, error: upsertError } = await client
-            .from('moneyhub_user_data')
-            .upsert({ user_id: authUser.id, data: stateRef.current }, { onConflict: 'user_id' })
-            .select('updated_at')
-            .single();
-          if (!upsertError && updated?.updated_at) {
-            saveStateMeta(new Date(updated.updated_at).getTime());
-          }
-        }
-      } else if (notFound || !data) {
-        const { data: created, error: createError } = await client
+      const localUpdatedAtAtStart = loadStateMeta().updatedAt || 0;
+      const localRevisionAtStart = localRevisionRef.current;
+      try {
+        const { data, error } = await client
           .from('moneyhub_user_data')
-          .upsert({ user_id: authUser.id, data: stateRef.current }, { onConflict: 'user_id' })
-          .select('updated_at')
+          .select('data, updated_at')
+          .eq('user_id', authUser.id)
           .single();
-        if (!createError && created?.updated_at) {
-          saveStateMeta(new Date(created.updated_at).getTime());
+        const notFound = error && error.code === 'PGRST116';
+        if (!active) return;
+        if (error && !notFound) {
+          console.error('Supabase sync error:', error);
+          return;
+        }
+        if (data?.data) {
+          const remoteUpdatedAtMs = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+          const currentLocalUpdatedAt = loadStateMeta().updatedAt || 0;
+          const localChangedDuringSync = localRevisionRef.current !== localRevisionAtStart
+            || currentLocalUpdatedAt > localUpdatedAtAtStart;
+          const remoteState = hydrateState(data.data as Partial<AppState>);
+          const localHasEntries = stateRef.current.entries.length > 0;
+          const remoteHasEntries = remoteState.entries.length > 0;
+          const shouldApplyRemote = remoteUpdatedAtMs > currentLocalUpdatedAt
+            && !localChangedDuringSync
+            && (!localHasEntries || remoteHasEntries);
+          if (shouldApplyRemote) {
+            skipNextRemoteSaveRef.current = true;
+            setState(remoteState);
+            saveStateMeta(remoteUpdatedAtMs);
+          } else {
+            await pushStateToRemote(stateRef.current);
+          }
+        } else if (notFound || !data) {
+          await pushStateToRemote(stateRef.current);
+        }
+      } finally {
+        syncInProgressRef.current = false;
+        if (!active) return;
+        if (pendingRemoteSaveRef.current) {
+          pendingRemoteSaveRef.current = false;
+          await pushStateToRemote(stateRef.current);
         }
       }
-      syncInProgressRef.current = false;
     };
-    sync();
+    void sync();
     return () => { active = false; };
-  }, [authEnabled, authUser]);
+  }, [authEnabled, authUser, pushStateToRemote]);
   useEffect(() => {
-    const client = supabase;
-    if (!authEnabled || !authUser || !client) return;
-    if (syncInProgressRef.current) return;
+    if (!authEnabled || !authUser || !supabase) return;
+    if (syncInProgressRef.current) {
+      pendingRemoteSaveRef.current = true;
+      return;
+    }
     if (skipNextRemoteSaveRef.current) {
       skipNextRemoteSaveRef.current = false;
       return;
@@ -2166,22 +2796,16 @@ function App() {
       clearTimeout(saveTimeoutRef.current);
     }
     saveTimeoutRef.current = setTimeout(async () => {
-      const { data: updated, error } = await client
-        .from('moneyhub_user_data')
-        .upsert({ user_id: authUser.id, data: state }, { onConflict: 'user_id' })
-        .select('updated_at')
-        .single();
-      if (!error && updated?.updated_at) {
-        saveStateMeta(new Date(updated.updated_at).getTime());
-      }
+      await pushStateToRemote(state);
     }, 800);
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [authEnabled, authUser, state]);
+  }, [authEnabled, authUser, state, pushStateToRemote]);
   const pageTitles: Record<string, string> = {
     '/': 'Dashboard',
     '/holdings': 'Holdings',
+    '/debts': 'Debts',
     '/entries': 'Entries',
     '/budgets': 'Budgets',
     '/analytics': 'Analytics',
@@ -2197,6 +2821,7 @@ function App() {
         <Routes>
           <Route path="/" element={<DashboardPage state={state} setState={setState} onGoToSettings={goToSettings} />} />
           <Route path="/holdings" element={<HoldingsPage state={state} setState={setState} />} />
+          <Route path="/debts" element={<DebtsPage state={state} setState={setState} />} />
           <Route path="/entries" element={<EntriesPage state={state} setState={setState} />} />
           <Route path="/budgets" element={<BudgetsPage state={state} setState={setState} />} />
           <Route path="/analytics" element={<AnalyticsPage state={state} onGoToSettings={goToSettings} />} />
