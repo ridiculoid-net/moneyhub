@@ -899,6 +899,45 @@ const saveCloudSyncIssue = (message: string | null): void => {
   } catch {}
 };
 
+const settingsDifferFromDefaults = (settings: Settings): boolean => {
+  return settings.userName.trim() !== defaultSettings.userName
+    || settings.payAmount !== defaultSettings.payAmount
+    || settings.payFrequency !== defaultSettings.payFrequency
+    || settings.firstPayDate !== defaultSettings.firstPayDate
+    || settings.bufferAmount !== defaultSettings.bufferAmount
+    || settings.savingsGoal !== defaultSettings.savingsGoal
+    || settings.finnhubApiKey !== defaultSettings.finnhubApiKey
+    || settings.theme !== defaultSettings.theme;
+};
+
+const budgetsDifferFromDefaults = (budgets: Budget[]): boolean => {
+  if (budgets.length !== defaultBudgets.length) return true;
+  const defaultBudgetById = new Map(defaultBudgets.map(b => [b.id, b]));
+  return budgets.some(budget => {
+    const base = defaultBudgetById.get(budget.id);
+    if (!base) return true;
+    return budget.category !== base.category
+      || budget.slug !== base.slug
+      || budget.type !== base.type
+      || roundMoney(budget.allocated) !== roundMoney(base.allocated)
+      || budget.rollover !== base.rollover
+      || budget.priority !== base.priority
+      || budget.protected !== base.protected
+      || budget.overspendPolicy !== base.overspendPolicy
+      || budget.color !== base.color;
+  });
+};
+
+const hasMeaningfulStateData = (value: AppState): boolean => {
+  if (value.entries.length > 0) return true;
+  if (value.holdings.length > 0) return true;
+  if (value.bills.length > 0) return true;
+  if (value.debts.length > 0) return true;
+  if (budgetsDifferFromDefaults(value.budgets)) return true;
+  if (settingsDifferFromDefaults(value.settings)) return true;
+  return false;
+};
+
 // ============================================
 // COMPONENTS
 // ============================================
@@ -2793,11 +2832,11 @@ function App() {
           const localChangedDuringSync = localRevisionRef.current !== localRevisionAtStart
             || currentLocalUpdatedAt > localUpdatedAtAtStart;
           const remoteState = hydrateState(data.data as Partial<AppState>);
-          const localHasEntries = stateRef.current.entries.length > 0;
-          const remoteHasEntries = remoteState.entries.length > 0;
+          const localHasMeaningfulData = hasMeaningfulStateData(stateRef.current);
+          const remoteHasMeaningfulData = hasMeaningfulStateData(remoteState);
           const shouldApplyRemote = remoteUpdatedAtMs > currentLocalUpdatedAt
             && !localChangedDuringSync
-            && (!localHasEntries || remoteHasEntries);
+            && (remoteHasMeaningfulData || !localHasMeaningfulData);
           if (shouldApplyRemote) {
             skipNextRemoteSaveRef.current = true;
             setState(remoteState);
